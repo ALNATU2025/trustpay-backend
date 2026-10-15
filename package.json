@@ -1,0 +1,37 @@
+{
+  "name": "trustpay-backend",
+  "version": "1.0.0",
+  "description": "TrustPay mobile banking API (Sierra Leone, SLE) - Express, MongoDB Atlas, Render",
+  "private": true,
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/scripts/seed.js",
+    "settle": "node src/scripts/settle.js",
+    "check": "node src/scripts/check.js",
+    "load-test": "node src/scripts/load-test.js",
+    "smoke": "node src/scripts/smoke.js",
+    "test": "node --test --test-concurrency=1 test/"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "morgan": "^1.10.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.4",
+    "supertest": "^7.0.0"
+  }
+}

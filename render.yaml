@@ -1,0 +1,53 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: trustpay-backend
+    runtime: node
+    plan: free            # use "starter" or higher for production (free services sleep after 15 minutes)
+    region: frankfurt     # closest Render region to West Africa
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 20
+      - key: MONGODB_URI
+        sync: false        # paste your MongoDB Atlas connection string in the Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CARD_ENCRYPTION_KEY
+        sync: false        # 64 hex characters: openssl rand -hex 32
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: PROVIDER_MODE
+        value: sandbox     # switch to "live" only after the partner adapters in src/providers are implemented
+      - key: OTP_DEBUG
+        value: "true"      # sandbox testing: returns the SMS code in the response. Set to "false" before PROVIDER_MODE=live.
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: SUPPORT_PHONE
+        sync: false
+  - type: cron
+    name: trustpay-pos-settlement
+    runtime: node
+    plan: starter
+    region: frankfurt
+    schedule: "0 16 * * *"   # 16:00 UTC = 4:00 PM Freetown
+    buildCommand: npm install --omit=dev --no-audit --no-fund
+    startCommand: npm run settle
+    envVars:
+      - fromService:
+          type: web
+          name: trustpay-backend
+          envVarKey: NODE_ENV
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CARD_ENCRYPTION_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
