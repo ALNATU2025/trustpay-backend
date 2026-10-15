@@ -15,6 +15,8 @@ const schema = new mongoose.Schema(
     deliveryMinor: { type: Number, required: true },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     reason: String,
+    // Set when an admin starts deciding. It works as a lock, so two admins cannot approve AND reject (refund) one request.
+    decisionIntent: { type: String, enum: ['approve', 'reject'] },
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,
     refundedAt: Date,

@@ -1,5 +1,6 @@
 'use strict';
 const mongoose = require('mongoose');
+require('./models'); // register every schema so their unique indexes are built before we serve traffic
 const env = require('./config/env');
 const log = require('./utils/log');
 

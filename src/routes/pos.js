@@ -186,14 +186,11 @@ router.post(
         },
       });
       const req2 = request || (await TerminalRequest.findOne({ reference: result.txn.reference }).lean());
+      const plain = req2 ? (req2.toObject ? req2.toObject() : req2) : null;
       return {
         status: 200,
         body: {
-          request: presentPosRequest({
-            ...(req2.toObject ? req2.toObject() : req2),
-            expectedFrom: addBusinessDays(new Date(), 3),
-            expectedTo: addBusinessDays(new Date(), 5),
-          }),
+          request: plain ? presentPosRequest({ ...plain, expectedFrom: addBusinessDays(new Date(), 3), expectedTo: addBusinessDays(new Date(), 5) }) : null,
           transaction: present(result.txn),
           balance: fromMinor(result.balanceMinor),
         },

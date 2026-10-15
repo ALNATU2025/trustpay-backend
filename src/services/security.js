@@ -28,8 +28,20 @@ const verifyToken = (token) => jwt.verify(token, env.jwtSecret);
 
 const minutesLeft = (until) => Math.max(1, Math.ceil((until.getTime() - Date.now()) / 60000));
 
-/** Verifies the transaction PIN. Counts failures atomically and locks after 5. Throws on any problem. */
-async function verifyPin(userId, pin) {
+// Per-user queue: PIN checks for one customer run one at a time inside this process, so a burst of
+// parallel guesses is counted (and locked out) in order instead of all slipping past the lock check.
+const queues = new Map();
+function serialize(key, fn) {
+  const run = (queues.get(key) || Promise.resolve()).catch(() => {}).then(fn);
+  const tail = run.catch(() => {});
+  queues.set(key, tail);
+  tail.then(() => {
+    if (queues.get(key) === tail) queues.delete(key);
+  });
+  return run;
+}
+
+async function verifyPinOnce(userId, pin) {
   const u = await User.findById(userId).select('+pinHash pinFailCount pinLockedUntil hasPin');
   if (!u || !u.hasPin || !u.pinHash) throw E.forbidden('Set your transaction PIN first.', 'PIN_NOT_SET');
   if (u.pinLockedUntil && u.pinLockedUntil.getTime() > Date.now()) {
@@ -47,6 +59,9 @@ async function verifyPin(userId, pin) {
   const left = PIN_MAX_FAILS - after.pinFailCount;
   throw E.locked(`Incorrect PIN. ${left} ${left === 1 ? 'attempt' : 'attempts'} left.`, 'BAD_PIN', { attemptsLeft: left });
 }
+
+/** Verifies the transaction PIN, counting failures and locking after 5. Throws on any problem. */
+const verifyPin = (userId, pin) => serialize(String(userId), () => verifyPinOnce(userId, pin));
 
 /* --------------------------------------------------------------------- OTP */
 

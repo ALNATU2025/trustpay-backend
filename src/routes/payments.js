@@ -112,8 +112,10 @@ router.post(
       feeMinor: 0,
       details: { accountName: toName, accountNumber: to.accountNumber, note: b.note },
       perform: async (txn) => {
+        let inbound;
+        let credit;
         try {
-          const inbound = await createWithReference(Txn, CODES.transfer, (reference) => ({
+          inbound = await createWithReference(Txn, CODES.transfer, (reference) => ({
             user: to._id,
             reference,
             kind: 'transfer',
@@ -129,12 +131,13 @@ router.post(
             search: searchText([reference, fullName(req.user), req.user.accountNumber]),
             externalRef: `in:${txn._id}`,
           }));
-          const credit = await creditWallet(to._id, b.amount, `in:${txn._id}`);
-          await Txn.updateOne({ _id: inbound._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } });
+          credit = await creditWallet(to._id, b.amount, `in:${txn._id}`);
         } catch (err) {
-          // Nothing reached the recipient if we land here before the credit, so the sender is refunded.
+          // Nothing reached the recipient if we land here, so the sender is refunded.
           throw new ProviderError('We could not complete the transfer.', { outcome: 'failed' });
         }
+        // The recipient HAS the money now: from here on never report a failure (that would refund the sender too).
+        await Txn.updateOne({ _id: inbound._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } }).catch(() => {});
         return {};
       },
     });

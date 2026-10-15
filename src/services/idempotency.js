@@ -38,9 +38,10 @@ async function idempotent(req, route, fn) {
     await Idempotency.updateOne({ user, key }, { $set: { state: 'done', statusCode: out.status, response: out.body } });
     return out;
   } catch (err) {
-    // Nothing was committed (payDebit settles its own failures), so let the client retry with the same key.
-    await Idempotency.deleteOne({ user, key }).catch(() => {});
-    if (err instanceof AppError) throw err;
+    // Expected failures (validation, wrong PIN, insufficient funds, partner refused and refunded) leave
+    // nothing half done, so the same key may be retried. An unexpected error could have happened after
+    // the customer was charged: keep the key so a retry cannot charge twice (it answers IN_PROGRESS).
+    if (err instanceof AppError) await Idempotency.deleteOne({ user, key }).catch(() => {});
     throw err;
   }
 }

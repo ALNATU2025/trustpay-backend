@@ -166,7 +166,7 @@ router.post(
       amountMinor: cfg.feesMinor.physicalCard,
       details: { name: b.name, phone: b.phone, address: b.address, city: b.city, state: b.state },
       perform: async (txn) => {
-        const r = await providers.cardIssuer.orderPhysical({ ...b, reference: txn.reference });
+        const r = await providers.cardIssuer.orderPhysical({ name: b.name, phone: b.phone, address: b.address, city: b.city, state: b.state, reference: txn.reference });
         card = await Card.create({
           user: req.user._id,
           type: 'physical',

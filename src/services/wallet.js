@@ -117,7 +117,21 @@ async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, 
     await Txn.deleteOne({ _id: txn._id });
     throw E.paymentRequired('Your balance is too low for this payment.');
   }
-  await Txn.updateOne({ _id: txn._id }, { $set: { debited: true, balanceAfterMinor: after.balanceMinor } });
+
+  // From here on the customer has been charged. Any unexpected failure must leave the Txn
+  // Pending and flagged for review. It must never throw, because a retry would charge again.
+  const flagForReview = async (why) => {
+    log.error('Post-debit problem', { reference: txn.reference, subtype, why });
+    await Txn.updateOne({ _id: txn._id }, { $set: { needsReview: true, failureReason: 'Awaiting confirmation.' } }).catch(() => {});
+    const pending = await Txn.findById(txn._id).lean().catch(() => null);
+    return { txn: pending || { ...txn.toObject(), needsReview: true }, balanceMinor: after.balanceMinor };
+  };
+
+  try {
+    await Txn.updateOne({ _id: txn._id }, { $set: { debited: true, balanceAfterMinor: after.balanceMinor } });
+  } catch (err) {
+    return flagForReview(err && err.message);
+  }
 
   let result;
   try {
@@ -127,27 +141,34 @@ async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, 
     const failed = notConfigured || (err instanceof ProviderError && err.outcome === 'failed');
     if (failed) {
       const message = notConfigured ? 'This service is not available yet.' : err.message;
-      const refund = await creditWallet(user._id, totalMinor, `refund:${txn._id}`);
-      await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: message } });
-      await reverse(txn, refund.balanceMinor, message);
+      try {
+        const refund = await creditWallet(user._id, totalMinor, `refund:${txn._id}`);
+        await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: message } });
+        await reverse(txn, refund.balanceMinor, message);
+      } catch (refundErr) {
+        return flagForReview(`refund failed: ${refundErr && refundErr.message}`);
+      }
       if (notConfigured) throw E.unavailable(`${message} You have not been charged.`, 'PROVIDER_NOT_CONFIGURED');
       throw E.upstream(`${message} Your money has been returned.`, err.code === 'PROVIDER_ERROR' ? 'PAYMENT_FAILED' : err.code);
     }
     // Unknown outcome: keep the debit, flag for review.
-    log.error('Payment outcome unknown', { reference: txn.reference, subtype, message: err && err.message });
-    await Txn.updateOne({ _id: txn._id }, { $set: { needsReview: true, failureReason: 'Awaiting confirmation from the provider.' } });
-    const pending = await Txn.findById(txn._id).lean();
-    return { txn: pending, balanceMinor: after.balanceMinor };
+    return flagForReview(err && err.message);
   }
 
-  const set = { status: 'Successful' };
-  if (result.providerRef) set.providerRef = result.providerRef;
-  if (result.token) set.token = result.token;
-  if (result.details) set.details = { ...details, ...result.details };
-  if (result.details) set.search = searchText([txn.reference, subtype, Object.values(set.details)]);
-  await Txn.updateOne({ _id: txn._id }, { $set: set });
-  const done = await Txn.findById(txn._id).lean();
-  return { txn: done, balanceMinor: after.balanceMinor };
+  try {
+    const set = { status: 'Successful' };
+    if (result.providerRef) set.providerRef = result.providerRef;
+    if (result.token) set.token = result.token;
+    if (result.details) {
+      set.details = { ...details, ...result.details };
+      set.search = searchText([txn.reference, subtype, Object.values(set.details)]);
+    }
+    await Txn.updateOne({ _id: txn._id }, { $set: set });
+    const done = await Txn.findById(txn._id).lean();
+    return { txn: done, balanceMinor: after.balanceMinor };
+  } catch (err) {
+    return flagForReview(err && err.message);
+  }
 }
 
 /**
@@ -229,6 +250,11 @@ async function applyExternalCredit({ userId, kind, subtype, code, amountMinor, f
     if (!isDuplicateKey(err, 'externalRef')) throw err;
     txn = await Txn.findOne({ externalRef });
     if (!txn) throw err;
+    if (txn.status === 'Successful') {
+      // Already applied: report it without touching the wallet again.
+      const cur = await User.findById(user._id).select('balanceMinor');
+      return { txn: txn.toObject(), balanceMinor: cur.balanceMinor, duplicate: true };
+    }
   }
   const credit = await creditWallet(user._id, amountMinor, externalRef);
   if (txn.status !== 'Successful') {

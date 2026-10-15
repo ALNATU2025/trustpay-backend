@@ -170,7 +170,8 @@ router.post(
     user.idLast4 = b.idNumber.slice(-4);
     user.address = b.address;
     // TODO(live): send the ID to your KYC provider (e.g. NCRA lookup) and only approve on a match.
-    user.kycStatus = 'approved';
+    // KYC_MANUAL=true leaves it pending for an admin (Admin > Approvals); otherwise it is approved straight away.
+    user.kycStatus = env.kycManual ? 'pending' : 'approved';
     user.kycSubmittedAt = new Date();
     if (user.onboardingStep === 'identity') user.onboardingStep = 'pin';
     await user.save();
@@ -195,8 +196,10 @@ router.post(
     user.pinHash = await hashSecret(pin);
     user.hasPin = true;
     user.onboardingStep = 'done';
-    user.status = 'active';
-    user.tier = 'Tier 2 · Verified';
+    if (user.kycStatus === 'approved') {
+      user.status = 'active';
+      user.tier = 'Tier 2 · Verified';
+    } // else: stays pending_kyc / Tier 1 until an admin approves; payments stay blocked until then
     await user.save();
     res.json({ user: presentUser(user) });
   }),
@@ -237,9 +240,15 @@ router.post(
   limits.auth,
   validate(S.forgotVerify),
   asyncHandler(async (req, res) => {
+    const generic = () => E.validation('That code is not correct or has expired.', 'OTP_INVALID');
     const user = await findByIdentifier(req.body.identifier);
-    if (!user) throw E.validation('That code is not correct.', 'OTP_INVALID');
-    await sec.checkOtp(user, 'reset_password', req.body.code);
+    if (!user) throw generic();
+    try {
+      await sec.checkOtp(user, 'reset_password', req.body.code);
+    } catch (err) {
+      if (err.status === 422) throw generic(); // same answer for wrong, expired and missing codes
+      throw err;
+    }
     res.json({ resetToken: sec.signReset(user) });
   }),
 );

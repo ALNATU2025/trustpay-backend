@@ -174,15 +174,22 @@ router.post(
     const decided = { decidedBy: req.user._id, decidedAt: new Date(), reason };
 
     if (kind === 'lim') {
-      const a = await Approval.findOneAndUpdate({ _id: rawId, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } }, { new: true });
+      const a = await Approval.findOne({ _id: rawId, status: 'pending' });
       if (!a) throw E.notFound('This request was already handled.');
-      if (approve) await User.updateOne({ _id: a.user }, { $set: { tier: a.requestedTier } });
+      if (approve) await User.updateOne({ _id: a.user }, { $set: { tier: a.requestedTier } }); // idempotent, done first
+      await Approval.updateOne({ _id: a._id, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } });
     } else if (kind === 'pos') {
-      const r = await TerminalRequest.findOneAndUpdate({ _id: rawId, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } }, { new: true });
+      const intent = approve ? 'approve' : 'reject';
+      // Claim the request. The same admin may retry the same decision after a crash; nobody else can flip it.
+      const r = await TerminalRequest.findOneAndUpdate(
+        { _id: rawId, status: 'pending', $or: [{ decisionIntent: null }, { decisionIntent: intent, decidedBy: req.user._id }] },
+        { $set: { decisionIntent: intent, decidedBy: req.user._id } },
+        { new: true },
+      );
       if (!r) throw E.notFound('This request was already handled.');
       if (approve) {
-        const t = await newTerminal(r);
-        await TerminalRequest.updateOne({ _id: r._id }, { $set: { terminal: t._id } });
+        const t = (await Terminal.findOne({ owner: r.user })) || (await newTerminal(r));
+        await TerminalRequest.updateOne({ _id: r._id }, { $set: { status: 'approved', terminal: t._id, decidedAt: new Date(), reason } });
       } else {
         // Money back: deposit and delivery. Keyed by the request, so a retry cannot refund twice.
         await applyExternalCredit({
@@ -194,12 +201,12 @@ router.post(
           details: { reason: reason || 'Your POS request was not approved.' },
           externalRef: `posrefund:${r._id}`,
         });
-        await TerminalRequest.updateOne({ _id: r._id }, { $set: { refundedAt: new Date() } });
+        await TerminalRequest.updateOne({ _id: r._id }, { $set: { status: 'rejected', refundedAt: new Date(), decidedAt: new Date(), reason } });
       }
     } else if (kind === 'kyc') {
       const u = await User.findOneAndUpdate(
         { _id: rawId, kycStatus: 'pending' },
-        { $set: { kycStatus: approve ? 'approved' : 'rejected', kycReason: reason, ...(approve ? { status: 'active' } : {}) } },
+        { $set: { kycStatus: approve ? 'approved' : 'rejected', kycReason: reason, ...(approve ? { status: 'active', tier: 'Tier 2 · Verified' } : {}) } },
       );
       if (!u) throw E.notFound('This request was already handled.');
     } else {

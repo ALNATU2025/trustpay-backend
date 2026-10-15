@@ -186,13 +186,13 @@ const S = {
   /* ---- webhooks ---- */
   webhookFunding: z.object({
     accountNumber: accountNumber10,
-    amount: amount(),
+    amount: amount({ max: Number.MAX_SAFE_INTEGER }), // money the bank already took must always be creditable
     reference: z.string(req('Reference')).trim().regex(/^[A-Za-z0-9._:-]{6,64}$/, 'Reference must be 6-64 letters, numbers or . _ : -'),
     sender: optText('Sender', 80),
   }),
   webhookPos: z.object({
     terminalCode: z.string(req('Terminal code')).trim().regex(/^TP-\d{4}$/, 'Terminal code is not valid.'),
-    amount: amount(),
+    amount: amount({ max: Number.MAX_SAFE_INTEGER }),
     kind: z.enum(['card', 'transfer'], { errorMap: () => ({ message: 'Kind must be card or transfer.' }) }),
     payer: optText('Payer', 80),
     reference: z.string(req('Reference')).trim().regex(/^[A-Za-z0-9._:-]{4,64}$/, 'Reference is not valid.'),

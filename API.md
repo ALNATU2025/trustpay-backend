@@ -41,12 +41,12 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - POST `/me/pin/verify` `{pin}` -> `{ ok: true }`
 - GET `/wallet` -> `{ balance, accountNumber, accountName }`
 
-## Catalog (auth) GET `/catalog`
+## Catalog (public) GET `/catalog`
 ```
 { banks: [string], mobileMoney: [string], networks: [string],
   electricity: [{name, subtitle}], tv: [{name, subtitle}], internet: [{name, subtitle}],
   dataPlans: [{id,size,days,price}], tvPackages: [{id,name,detail,price}], internetPackages: [{id,name,detail,price}],
-  fees: { transfer, mobileMoneySend, bill, cardIssuance, physicalCard, terminalDeposit, terminalDelivery },
+  fees: { transfer, mobileMoneySend, bill, cardIssuance, physicalCard, terminalDeposit, terminalDelivery, cardFundingPercent },
   terminal: { categories:[string], districts:[string] },
   topics: [string],
   support: { phone, email, hours } }
@@ -108,6 +108,16 @@ Card: `{ id, type: "virtual"|"physical", last4, expiry, holder, balance, frozen,
 - GET `/admin/approvals` -> `{ items: [{id, type: "kyc"|"pos"|"limit", title, detail, createdAt}] }`
 - POST `/admin/approvals/:id/decision` `{approve: bool, reason?}` -> `{ ok: true }`
 - GET `/admin/tickets`, POST `/admin/tickets/:id/reply` `{text}`, POST `/admin/tickets/:id/close`
+
+## Additional routes (implemented)
+- POST `/lookup/customer` `{category: "tv"|"internet", provider, number}` -> `{ customerName }`
+- POST `/me/limit-request` `{reason?}` -> 201 `{ message }` (creates a "limit" approval for admins)
+- DELETE `/recipients/:id` -> `{ ok: true }`
+- GET `/pos/settlements/:id` -> `{ settlement }` (a paid settlement with its payments)
+- Admin approval ids are prefixed by kind: `lim_<id>`, `pos_<id>`, `kyc_<id>`.
+- Payments: send header `Idempotency-Key` (8-80 chars) on every money-moving POST. A repeat returns the first response; a different body with the same key is 409 `IDEMPOTENCY_KEY_REUSED`; a payment still running is 409 `IN_PROGRESS`.
+- Error codes the app reacts to: `BAD_PIN` and `PIN_LOCKED` (423), `INSUFFICIENT_FUNDS` (402), `ONBOARDING_INCOMPLETE` / `SUSPENDED` (403), `OTP_*` (422), `RATE_LIMITED` (429), `PAYMENT_FAILED` (502, money already returned), `PROVIDER_NOT_CONFIGURED` (503).
+- Pending payments: when a partner's answer is unknown the transaction is returned with `status: "Pending"` (HTTP 200) and the money stays held until it is confirmed.
 
 ## Health
 - GET `/health` **public** -> `{ ok: true, uptime }`

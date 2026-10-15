@@ -54,6 +54,7 @@ const env = {
   webhookSecret,
   providerMode,
   otpDebug: bool(process.env.OTP_DEBUG, false),
+  kycManual: bool(process.env.KYC_MANUAL, false),
   corsOrigins: str(process.env.CORS_ORIGINS, '*'),
   trustProxy: int(process.env.TRUST_PROXY, 1),
   bcryptCost: int(process.env.BCRYPT_COST, 12),
@@ -79,6 +80,9 @@ env.assertValid = function assertValid() {
   if (!/^[0-9a-fA-F]{64}$/.test(env.cardKeyHex)) problems.push('CARD_ENCRYPTION_KEY must be 64 hex characters (32 bytes).');
   if (!Number.isFinite(env.maxAmountMinor) || env.maxAmountMinor <= 0) problems.push('MAX_AMOUNT_LE must be a positive number.');
   if (env.otpDebug && env.providerMode === 'live') problems.push('OTP_DEBUG must be false when PROVIDER_MODE=live.');
+  if (isProd && env.providerMode === 'sandbox' && !bool(process.env.ALLOW_SANDBOX_IN_PRODUCTION, false)) {
+    problems.push('PROVIDER_MODE=sandbox moves FAKE money and sends no SMS. For a public test deployment set ALLOW_SANDBOX_IN_PRODUCTION=true; for real users set PROVIDER_MODE=live.');
+  }
   if (isProd) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) problems.push('JWT_SECRET (32+ chars) is required in production.');
     if (!process.env.CARD_ENCRYPTION_KEY) problems.push('CARD_ENCRYPTION_KEY is required in production.');
