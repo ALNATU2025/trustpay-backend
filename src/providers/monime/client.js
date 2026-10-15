@@ -47,6 +47,7 @@ async function raw(method, path, { query, body, idempotencyKey } = {}) {
   for (const [k, v] of Object.entries(query || {})) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), env.monime.timeoutMs);
+  const started = Date.now();
   try {
     const res = await fetch(url, {
       method,
@@ -55,6 +56,7 @@ async function raw(method, path, { query, body, idempotencyKey } = {}) {
       signal: ctrl.signal,
     });
     const text = await res.text();
+    log.info('Monime call', { method, path, status: res.status, ms: Date.now() - started });
     let json = null;
     try {
       json = text ? JSON.parse(text) : null;
@@ -66,6 +68,7 @@ async function raw(method, path, { query, body, idempotencyKey } = {}) {
   } catch (err) {
     if (err instanceof MonimeHttpError) throw err;
     const timedOut = err && err.name === 'AbortError';
+    if (!(err instanceof MonimeHttpError)) log.warn('Monime call failed', { method, path, ms: Date.now() - started, reason: timedOut ? 'timeout' : err && err.message });
     throw Object.assign(new Error(timedOut ? 'Monime timed out.' : `Monime is unreachable: ${err && err.message}`), { network: true });
   } finally {
     clearTimeout(timer);

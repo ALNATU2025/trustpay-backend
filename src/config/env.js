@@ -69,7 +69,7 @@ const env = {
     fundingAccountId: str(process.env.MONIME_FUNDING_ACCOUNT_ID),
     // HS256 secret you give Monime when you register the webhook (32-256 characters).
     webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
-    timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 15000),
+    timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 10000),
   },
   // Public URL of this API (used for checkout return pages), e.g. https://trustpay-backend-zkiv.onrender.com
   publicUrl: str(process.env.PUBLIC_URL, str(process.env.RENDER_EXTERNAL_URL)).replace(/\/+$/, ''),
