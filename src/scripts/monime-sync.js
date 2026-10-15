@@ -11,7 +11,7 @@ const { Config } = require('../models');
 
 (async () => {
   const banks = (await directory.load('bank', true)).filter((b) => !b.featureSet || !b.featureSet.payout || b.featureSet.payout.canPayTo !== false);
-  const momos = (await directory.load('momo', true)).filter((m) => !m.featureSet || !m.featureSet.payout || m.featureSet.payout.canPayTo !== false);
+  const momos = (await directory.load('momo', true)).filter((m) => !/\b(agent|merchant)\b/i.test(m.name || '')).filter((m) => !m.featureSet || !m.featureSet.payout || m.featureSet.payout.canPayTo !== false);
   console.log('Banks:');
   banks.forEach((b) => console.log(`  ${b.providerId}  ${b.name}`));
   console.log('Mobile money:');
