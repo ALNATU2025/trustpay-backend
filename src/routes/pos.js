@@ -1,6 +1,9 @@
 'use strict';
 const express = require('express');
-const { Terminal, TerminalRequest, PosPayment, Settlement } = require('../models');
+const { Terminal, TerminalRequest, PosPayment, Settlement, PosCharge } = require('../models');
+const providers = require('../providers');
+const posCharges = require('../services/posCharge');
+const { ProviderError, NotConfiguredError } = require('../providers/errors');
 const S = require('../validators/schemas');
 const { validate } = require('../middleware/validate');
 const { requireAuth, requireOnboarded } = require('../middleware/auth');
@@ -29,9 +32,11 @@ function nextSettlementTime(now = new Date()) {
   return t > now ? t : addDays(t, 1);
 }
 
+const kindTitle = (k) => (k === 'card' ? 'Card payment' : k === 'momo' ? 'Mobile money' : 'Bank transfer');
+
 const payLine = (p) => ({
   reference: p.reference,
-  title: p.kind === 'card' ? 'Card payment' : 'Bank transfer',
+  title: kindTitle(p.kind),
   subtitle: `${hhmm(new Date(p.createdAt))} · ${p.payer || (p.kind === 'card' ? 'Card' : 'Transfer')}`,
   amount: fromMinor(p.amountMinor),
 });
@@ -83,7 +88,7 @@ router.get(
       nextSettlement: preview.settlement,
       recent: recent.map((p) => ({
         id: String(p._id),
-        title: p.kind === 'card' ? 'Card payment' : 'Bank transfer',
+        title: kindTitle(p.kind),
         subtitle: `${shortDate(new Date(p.createdAt))}, ${hhmm(new Date(p.createdAt))} · ${p.payer || 'Customer'}`,
         amount: fromMinor(p.amountMinor),
         kind: p.kind,
@@ -124,6 +129,85 @@ router.get(
         payments: pays.map(payLine),
       },
     });
+  }),
+);
+
+/* ---- phone POS: charge a customer by mobile money ---- */
+
+const presentCharge = (c) => ({
+  id: String(c._id),
+  reference: c.reference,
+  amount: fromMinor(c.amountMinor),
+  note: c.note || '',
+  customerPhone: formatLocal(c.customerPhone),
+  status: c.status,
+  ussdCode: c.status === 'Pending' ? c.ussdCode || null : null,
+  expiresAt: iso(c.expiresAt),
+  failureReason: c.failureReason || '',
+  createdAt: iso(c.createdAt),
+  paidAt: iso(c.paidAt),
+});
+
+router.post(
+  '/charges',
+  limits.payment,
+  validate(S.posCharge),
+  asyncHandler(async (req, res) => {
+    const out = await idempotent(req, 'pos.charge', async () => {
+      assertCanTransact(req.user);
+      const b = req.body;
+      const name = `${req.user.businessName || req.user.firstName} POS`.slice(0, 64);
+      const charge = await createWithReference(PosCharge, CODES.posCharge, (reference) => ({
+        owner: req.user._id,
+        reference,
+        amountMinor: b.amount,
+        note: b.note,
+        customerPhone: b.number,
+        provider: b.provider,
+      }));
+      let code;
+      try {
+        code = await Promise.race([
+          providers.paymentCode.create({ provider: b.provider, number: b.number, amountMinor: b.amount, reference: charge.reference, name }),
+          new Promise((_, rej) => setTimeout(() => rej(new ProviderError('The payment provider is taking too long. Please try again.', { outcome: 'failed' })), 25000)),
+        ]);
+      } catch (err) {
+        const reason = err instanceof ProviderError && err.outcome === 'failed' && err.message ? err.message : 'The payment request could not be created.';
+        await PosCharge.updateOne({ _id: charge._id }, { $set: { status: 'Failed', failureReason: reason } });
+        if (err instanceof NotConfiguredError || (err instanceof ProviderError && err.code === 'PROVIDER_NOT_CONFIGURED')) {
+          throw E.unavailable('This service is not available yet.', 'PROVIDER_NOT_CONFIGURED');
+        }
+        throw E.upstream(reason, 'PAYMENT_FAILED');
+      }
+      await PosCharge.updateOne({ _id: charge._id }, { $set: { providerRef: code.id, ussdCode: code.ussdCode || undefined, expiresAt: code.expiresAt || undefined } });
+      if (code.instant) await posCharges.markPaid(charge._id);
+      const fresh = await PosCharge.findById(charge._id).lean();
+      return { status: 201, body: { charge: presentCharge(fresh) } };
+    });
+    res.status(out.status).json(out.body);
+  }),
+);
+
+router.get(
+  '/charges',
+  asyncHandler(async (req, res) => {
+    const rows = await PosCharge.find({ owner: req.user._id }).sort({ createdAt: -1 }).limit(20).lean();
+    res.json({ items: rows.map(presentCharge) });
+  }),
+);
+
+router.get(
+  '/charges/:id',
+  asyncHandler(async (req, res) => {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.id)) throw E.notFound('We could not find that payment request.');
+    let c = await PosCharge.findOne({ _id: req.params.id, owner: req.user._id });
+    if (!c) throw E.notFound('We could not find that payment request.');
+    if (c.status === 'Pending') {
+      if (c.expiresAt && c.expiresAt.getTime() + 60000 < Date.now()) await posCharges.markFailed(c._id, 'Expired', 'The payment code expired before the customer paid.');
+      else await posCharges.refreshThrottled(c);
+      c = await PosCharge.findById(c._id);
+    }
+    res.json({ charge: presentCharge(c.toObject()) });
   }),
 );
 

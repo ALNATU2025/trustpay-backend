@@ -9,7 +9,8 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const env = require('../config/env');
-const { Txn } = require('../models');
+const { Txn, PosCharge } = require('../models');
+const posCharge = require('./posCharge');
 const payouts = require('../providers/monime/payouts');
 const client = require('../providers/monime/client');
 const { settleDebit, settleCredit, failCredit } = require('./wallet');
@@ -76,7 +77,7 @@ async function handleSession(id) {
 
 async function handleCode(id) {
   const txn = await Txn.findOne({ providerRef: id, subtype: 'funding_momo_code' });
-  if (!txn) return { handled: false };
+  if (!txn) return posCharge.refreshByProviderRef(id);
   const code = await client.read(`/v1/payment-codes/${encodeURIComponent(id)}`);
   const state = String(code.status || '').toLowerCase();
   if (!['pending', 'processing', 'completed', 'expired', 'cancelled'].includes(state)) log.warn('Payment code has an unfamiliar status', { status: code.status });
@@ -93,6 +94,15 @@ async function handlePayment(id) {
   const owner = payment.ownershipGraph && payment.ownershipGraph.owner;
   if (!owner || !['checkout_session', 'payment_code'].includes(owner.type)) return { handled: false };
   const txn = await Txn.findOne({ providerRef: owner.id, subtype: owner.type === 'payment_code' ? 'funding_momo_code' : 'funding_checkout' });
+  if (!txn && owner.type === 'payment_code') {
+    const charge = await PosCharge.findOne({ providerRef: owner.id });
+    if (!charge) return { handled: false };
+    if (!payment.amount || payment.amount.currency !== 'SLE' || payment.amount.value < charge.amountMinor) {
+      log.error('POS payment smaller than requested: not recorded', { reference: charge.reference, paid: payment.amount });
+      return { handled: true, changed: false };
+    }
+    return { handled: true, ...(await posCharge.markPaid(charge._id)) };
+  }
   if (!txn) return { handled: false };
   const paid = payment.amount;
   if (!paid || paid.currency !== 'SLE' || paid.value < txn.amountMinor) {
@@ -137,6 +147,17 @@ async function reconcilePending({ minAgeMs = 60 * 1000, limit = 200 } = {}) {
     } catch (err) {
       out.errors += 1;
       log.warn('Reconcile skipped a transaction', { reference: t.reference, message: err && err.message });
+    }
+  }
+  // Phone-POS charges waiting for the customer.
+  const charges = await PosCharge.find({ status: 'Pending', createdAt: { $lt: before } }).sort({ createdAt: 1 }).limit(limit).lean();
+  for (const c of charges) {
+    out.checked += 1;
+    try {
+      const r = await posCharge.refresh(c);
+      if (r.changed) out.settled += 1;
+    } catch (err) {
+      out.errors += 1;
     }
   }
   return out;

@@ -16,6 +16,7 @@ const CODES = {
   mmAdd: 'MMA',
   support: 'SUP',
   settlement: 'SET',
+  posCharge: 'PCH',
 };
 
 /** `TP-TRF-131026-4821` (code, DDMMYY, 4 random digits). */

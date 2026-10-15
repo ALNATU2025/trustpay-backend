@@ -11,6 +11,7 @@ const models = {
   TerminalRequest: require('./TerminalRequest'),
   PosPayment: require('./PosPayment'),
   Settlement: require('./Settlement'),
+  PosCharge: require('./PosCharge'),
   Ticket: require('./Ticket'),
   Message: require('./Message'),
   Approval: require('./Approval'),

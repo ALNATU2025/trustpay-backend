@@ -3,11 +3,11 @@ const mongoose = require('mongoose');
 
 const schema = new mongoose.Schema(
   {
-    terminal: { type: mongoose.Schema.Types.ObjectId, ref: 'Terminal', required: true },
+    terminal: { type: mongoose.Schema.Types.ObjectId, ref: 'Terminal', default: null }, // null for phone POS
     terminalCode: { type: String, required: true },
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     amountMinor: { type: Number, required: true, min: 1 },
-    kind: { type: String, enum: ['card', 'transfer'], required: true },
+    kind: { type: String, enum: ['card', 'transfer', 'momo'], required: true },
     payer: String,
     reference: { type: String, required: true }, // provided by the POS/acquirer
     settled: { type: Boolean, default: false },

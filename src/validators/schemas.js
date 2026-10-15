@@ -217,6 +217,12 @@ const S = {
   }),
 
   /* ---- POS ---- */
+  posCharge: z.object({
+    amount: amount(),
+    number: phone('Customer wallet number'),
+    provider: optText('Wallet provider', 40),
+    note: optText('Note', 80),
+  }),
   posToggle: z.object({ enabled: bool('Enabled') }),
   posRequest: z.object({
     businessName: text('Business name', { max: 120 }),
