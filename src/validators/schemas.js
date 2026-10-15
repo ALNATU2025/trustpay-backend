@@ -237,6 +237,31 @@ const S = {
     status: z.enum(['active', 'suspended'], { errorMap: () => ({ message: 'Status must be active or suspended.' }) }).optional(),
     tier: z.enum(['Tier 1 · Basic', 'Tier 2 · Verified', 'Tier 3 · Premium']).optional(),
   }).refine((v) => v.status || v.tier, { message: 'Nothing to update.' }),
+  fundingManual: z.object({
+    type: z.enum(['credit', 'debit'], { errorMap: () => ({ message: 'Type must be credit or debit.' }) }),
+    amount: amount(),
+    reason: text('Reason', { min: 5, max: 200 }),
+    key: z.string(req('Request key')).trim().min(8, 'Request key is too short.').max(80, 'Request key is too long.'),
+  }),
+  adminTxnQuery: z.object({
+    service: z.enum(['all', 'transfer', 'bill', 'airtime', 'funding']).default('all'),
+    status: z.enum(['Successful', 'Pending', 'Failed']).optional(),
+    direction: z.enum(['debit', 'credit']).optional(),
+    user: z.string().trim().regex(/^[a-f0-9]{24}$/i, 'User id is not valid.').optional(),
+    review: z.enum(['1']).optional(),
+    q,
+    page,
+    limit,
+    from: isoDate('From'),
+    to: isoDate('To'),
+  }),
+  posQuery: z.object({
+    owner: z.string().trim().regex(/^[a-f0-9]{24}$/i, 'Merchant id is not valid.').optional(),
+    status: z.string().trim().max(20).optional(),
+    q,
+    page,
+    limit,
+  }),
   decision: z.object({ approve: bool('Approve'), reason: optText('Reason', 300) }),
 
   /* ---- queries ---- */

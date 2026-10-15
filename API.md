@@ -107,7 +107,12 @@ Card: `{ id, type: "virtual"|"physical", last4, expiry, holder, balance, frozen,
 - GET `/admin/stats` -> `{ totalUsers, activeToday, pendingApprovals, openTickets, volumeToday, volumeYesterday, changePct, week: [{label:"Mon", value}] }` (value in Leones; last 7 days)
 - GET `/admin/users?q=&page=` -> `{ items: [{id, name, phone, tier, status}], page, hasMore }`
 - PATCH `/admin/users/:id` `{status: "active"|"suspended"}` -> `{ user }` (admin only)
-- GET `/admin/transactions?q=&page=` -> `{ items: [Txn], page, hasMore }` all users
+- GET `/admin/transactions?service=all|transfer|bill|airtime|funding&status=&direction=&user=<id>&review=1&q=&from=&to=&page=` -> `{ items: [Txn + userId, owner, ownerAccount, reference, subtype, provider, failureReason, needsReview], page, hasMore }` all users
+- GET `/admin/users/:id` -> `{ user: {id,name,phone,email,tier,status,role,balance,kycStatus,accountNumber,lastLoginAt,createdAt,locked}, recent: [Txn], hasTerminal }`
+- POST `/admin/users/:id/unlock` -> `{ user }` clears a PIN lock (admin only)
+- POST `/admin/users/:id/funding` `{type: "credit"|"debit", amount, reason (5-200 chars), key (8-80 chars)}` -> `{ transaction, balance, duplicate }` (admin only). Manual adjustment: idempotent per admin+key, debit never overdraws (400), cannot target yourself or staff, audit-logged (`audit:funding.credit|debit`), shows as "Manual credit/debit" in the customer's history.
+- GET `/admin/pos/overview` -> `{ activeTerminals, pendingRequests, paymentsCount, paymentsVolume, payoutsProcessing(+Count), payoutsPaid(+Count) }`
+- GET `/admin/pos/terminals|payments|settlements?owner=<userId>&status=&q=&page=` -> `{ items, page, hasMore }` (settlements = merchant payouts)
 - GET `/admin/approvals` -> `{ items: [{id, type: "kyc"|"pos"|"limit", title, detail, createdAt}] }`
 - POST `/admin/approvals/:id/decision` `{approve: bool, reason?}` -> `{ ok: true }`
 - GET `/admin/tickets`, POST `/admin/tickets/:id/reply` `{text}`, POST `/admin/tickets/:id/close`

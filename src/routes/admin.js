@@ -1,6 +1,8 @@
 'use strict';
 const express = require('express');
 const { User, Txn, Ticket, Message, Approval, TerminalRequest, Terminal } = require('../models');
+const PosPayment = require('../models/PosPayment');
+const Settlement = require('../models/Settlement');
 const S = require('../validators/schemas');
 const { validate } = require('../middleware/validate');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -10,7 +12,8 @@ const { CODES, isDuplicateKey } = require('../utils/references');
 const { fromMinor } = require('../utils/money');
 const { randomDigits } = require('../utils/crypto');
 const { startOfDayUtc, addDays, DAYS } = require('../utils/time');
-const { applyExternalCredit } = require('../services/wallet');
+const { applyExternalCredit, debitWallet, fullName, searchText } = require('../services/wallet');
+const { createWithReference, CODES: REF_CODES, isDuplicateKey: isDup } = require('../utils/references');
 const { present, presentTicket, presentMessage, iso } = require('../services/presenter');
 const { buildFilter, listPage } = require('./transactions');
 const { addMessage } = require('./support');
@@ -106,11 +109,264 @@ router.patch(
   }),
 );
 
+/** Admin ledger row: the customer-facing row plus who owns it and why it needs attention. */
+const adminTxn = (t) => ({
+  ...present(t),
+  userId: String(t.user),
+  owner: t.ownerName || '',
+  ownerAccount: t.ownerAccount || '',
+  reference: t.reference,
+  subtype: t.subtype,
+  provider: t.providerRef || '',
+  failureReason: t.failureReason || '',
+  needsReview: !!t.needsReview,
+});
+
 router.get(
   '/transactions',
-  validate(S.txnQuery, 'query'),
+  validate(S.adminTxnQuery, 'query'),
   asyncHandler(async (req, res) => {
-    res.json(await listPage(buildFilter(req.query, {}), req.query));
+    const q = req.query;
+    const f = buildFilter(q, {});
+    if (q.direction) f.direction = q.direction;
+    if (q.user) f.user = q.user;
+    if (q.review) f.needsReview = true;
+    const rows = await Txn.find(f).sort({ createdAt: -1, _id: -1 }).skip((q.page - 1) * q.limit).limit(q.limit + 1).lean();
+    res.json({ items: rows.slice(0, q.limit).map(adminTxn), page: q.page, hasMore: rows.length > q.limit });
+  }),
+);
+
+/* ---- user detail + manual funding ---- */
+
+const adminUserDetail = (u) => ({
+  ...adminUser(u),
+  email: u.email || '',
+  role: u.role,
+  balance: fromMinor(u.balanceMinor),
+  kycStatus: u.kycStatus,
+  onboardingStep: u.onboardingStep,
+  accountNumber: u.accountNumber || '',
+  lastLoginAt: iso(u.lastLoginAt),
+  createdAt: iso(u.createdAt),
+  locked: !!(u.pinLockedUntil && u.pinLockedUntil > new Date()),
+});
+
+router.get(
+  '/users/:id',
+  asyncHandler(async (req, res) => {
+    const u = await User.findById(req.params.id).lean();
+    if (!u) throw E.notFound('User not found.');
+    const [recent, term] = await Promise.all([
+      Txn.find({ user: u._id }).sort({ createdAt: -1, _id: -1 }).limit(10).lean(),
+      Terminal.findOne({ owner: u._id }).lean(),
+    ]);
+    res.json({ user: adminUserDetail(u), recent: recent.map(adminTxn), hasTerminal: !!term });
+  }),
+);
+
+router.post(
+  '/users/:id/unlock',
+  adminOnly,
+  asyncHandler(async (req, res) => {
+    const u = await User.findOneAndUpdate({ _id: req.params.id, role: 'user' }, { $set: { pinFailCount: 0 }, $unset: { pinLockedUntil: 1 } }, { new: true });
+    if (!u) throw E.notFound('User not found.');
+    audit(req, 'user.unlock', { target: String(u._id) });
+    res.json({ user: adminUserDetail(u) });
+  }),
+);
+
+router.post(
+  '/users/:id/funding',
+  adminOnly,
+  validate(S.fundingManual),
+  asyncHandler(async (req, res) => {
+    const { type, amount, reason, key } = req.body;
+    const target = await User.findById(req.params.id).select('firstName lastName accountNumber balanceMinor role status');
+    if (!target) throw E.notFound('User not found.');
+    if (String(target._id) === String(req.user._id)) throw E.forbidden('You cannot adjust your own balance.');
+    if (target.role !== 'user') throw E.forbidden('Staff accounts cannot be adjusted here.');
+    const externalRef = `manual:${req.user._id}:${key}`;
+    const details = { reason, by: String(req.user._id), byName: fullName(req.user) };
+
+    let txn;
+    let balanceMinor;
+    let duplicate = false;
+    if (type === 'credit') {
+      const r = await applyExternalCredit({
+        userId: target._id,
+        kind: 'funding',
+        subtype: 'manual_credit',
+        code: REF_CODES.funding,
+        amountMinor: amount,
+        details,
+        externalRef,
+      });
+      txn = r.txn;
+      balanceMinor = r.balanceMinor;
+      duplicate = !!r.duplicate;
+    } else {
+      // Debit: write the row first (unique externalRef makes a retry safe), then move the money atomically.
+      try {
+        txn = (
+          await createWithReference(Txn, REF_CODES.transfer, (reference) => ({
+            user: target._id,
+            reference,
+            kind: 'funding',
+            subtype: 'manual_debit',
+            direction: 'debit',
+            amountMinor: amount,
+            feeMinor: 0,
+            totalMinor: amount,
+            status: 'Pending',
+            details,
+            ownerName: fullName(target),
+            ownerAccount: target.accountNumber,
+            search: searchText([reference, 'manual debit adjustment', reason]),
+            externalRef,
+          }))
+        ).toObject();
+      } catch (err) {
+        if (!isDup(err, 'externalRef')) throw err;
+        txn = await Txn.findOne({ externalRef }).lean();
+        duplicate = true;
+      }
+      if (!duplicate) {
+        const after = await debitWallet(target._id, amount);
+        if (!after) {
+          await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: 'Insufficient balance.' } });
+          throw E.badRequest('The customer does not have enough balance for this debit.');
+        }
+        balanceMinor = after.balanceMinor;
+        await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Successful', debited: true, balanceAfterMinor: balanceMinor } });
+        txn = await Txn.findById(txn._id).lean();
+      } else {
+        balanceMinor = (await User.findById(target._id).select('balanceMinor')).balanceMinor;
+      }
+    }
+    audit(req, `funding.${type}`, { target: String(target._id), amountMinor: amount, reason, ref: txn && txn.reference, duplicate });
+    res.json({ transaction: adminTxn(txn), balance: fromMinor(balanceMinor), duplicate });
+  }),
+);
+
+/* ---- merchants / POS ---- */
+
+router.get(
+  '/pos/overview',
+  asyncHandler(async (req, res) => {
+    const [terminals, payments, processing, paid, pendingReq] = await Promise.all([
+      Terminal.countDocuments({ status: 'active' }),
+      PosPayment.aggregate([{ $group: { _id: null, total: { $sum: '$amountMinor' }, count: { $sum: 1 } } }]),
+      Settlement.aggregate([{ $match: { status: 'Processing' } }, { $group: { _id: null, net: { $sum: '$netMinor' }, count: { $sum: 1 } } }]),
+      Settlement.aggregate([{ $match: { status: 'Paid' } }, { $group: { _id: null, net: { $sum: '$netMinor' }, count: { $sum: 1 } } }]),
+      TerminalRequest.countDocuments({ status: 'pending' }),
+    ]);
+    const p = payments[0] || { total: 0, count: 0 };
+    res.json({
+      activeTerminals: terminals,
+      pendingRequests: pendingReq,
+      paymentsCount: p.count,
+      paymentsVolume: fromMinor(p.total),
+      payoutsProcessing: fromMinor((processing[0] || {}).net || 0),
+      payoutsProcessingCount: (processing[0] || {}).count || 0,
+      payoutsPaid: fromMinor((paid[0] || {}).net || 0),
+      payoutsPaidCount: (paid[0] || {}).count || 0,
+    });
+  }),
+);
+
+async function ownerNames(ids) {
+  const users = await User.find({ _id: { $in: [...new Set(ids.map(String))] } }).select('firstName lastName').lean();
+  return Object.fromEntries(users.map((u) => [String(u._id), `${u.firstName} ${u.lastName}`.trim()]));
+}
+
+router.get(
+  '/pos/terminals',
+  validate(S.posQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const { owner, status, page, limit } = req.query;
+    const f = {};
+    if (owner) f.owner = owner;
+    if (status === 'active' || status === 'disabled') f.status = status;
+    const rows = await Terminal.find(f).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit + 1).lean();
+    const items = rows.slice(0, limit);
+    const names = await ownerNames(items.map((t) => t.owner));
+    res.json({
+      items: items.map((t) => ({
+        id: String(t._id),
+        code: t.code,
+        serial: t.serial,
+        status: t.status,
+        businessName: t.businessName || '',
+        location: t.location || '',
+        ownerId: String(t.owner),
+        owner: names[String(t.owner)] || '',
+        lastSync: iso(t.lastSyncAt),
+      })),
+      page,
+      hasMore: rows.length > limit,
+    });
+  }),
+);
+
+router.get(
+  '/pos/payments',
+  validate(S.posQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const { owner, q, page, limit } = req.query;
+    const f = {};
+    if (owner) f.owner = owner;
+    if (q) f.$or = [{ reference: { $regex: escapeRe(q) } }, { terminalCode: { $regex: escapeRe(q.toUpperCase()) } }, { payer: { $regex: escapeRe(q), $options: 'i' } }];
+    const rows = await PosPayment.find(f).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit + 1).lean();
+    const items = rows.slice(0, limit);
+    const names = await ownerNames(items.map((p) => p.owner));
+    res.json({
+      items: items.map((p) => ({
+        id: String(p._id),
+        reference: p.reference,
+        terminalCode: p.terminalCode,
+        ownerId: String(p.owner),
+        owner: names[String(p.owner)] || '',
+        kind: p.kind,
+        payer: p.payer || '',
+        amount: fromMinor(p.amountMinor),
+        settled: !!p.settled,
+        createdAt: iso(p.createdAt),
+      })),
+      page,
+      hasMore: rows.length > limit,
+    });
+  }),
+);
+
+router.get(
+  '/pos/settlements',
+  validate(S.posQuery, 'query'),
+  asyncHandler(async (req, res) => {
+    const { owner, status, page, limit } = req.query;
+    const f = {};
+    if (owner) f.owner = owner;
+    if (status === 'Processing' || status === 'Paid') f.status = status;
+    const rows = await Settlement.find(f).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit + 1).lean();
+    const items = rows.slice(0, limit);
+    const names = await ownerNames(items.map((s) => s.owner));
+    res.json({
+      items: items.map((s) => ({
+        id: String(s._id),
+        reference: s.reference,
+        ownerId: String(s.owner),
+        owner: names[String(s.owner)] || '',
+        gross: fromMinor(s.grossMinor),
+        fee: fromMinor(s.feeMinor),
+        net: fromMinor(s.netMinor),
+        count: s.count,
+        status: s.status,
+        destination: s.destination,
+        scheduledFor: iso(s.scheduledFor),
+        settledAt: iso(s.settledAt),
+      })),
+      page,
+      hasMore: rows.length > limit,
+    });
   }),
 );
 

@@ -182,6 +182,20 @@ const KINDS = {
     eyebrow: 'TRANSACTIONS · REFUND RECEIPT',
     rows: (d) => (d.reason ? [['Reason', d.reason]] : []),
   },
+  manual_credit: {
+    label: 'Manual credit',
+    title: (d) => `Credit by TrustPay${d.reason ? ` · ${d.reason}` : ''}`,
+    banner: () => 'Credited by TrustPay',
+    eyebrow: 'TRANSACTIONS · ADJUSTMENT',
+    rows: (d) => (d.reason ? [['Reason', d.reason]] : []),
+  },
+  manual_debit: {
+    label: 'Manual debit',
+    title: (d) => `Debit by TrustPay${d.reason ? ` · ${d.reason}` : ''}`,
+    banner: () => 'Debited by TrustPay',
+    eyebrow: 'TRANSACTIONS · ADJUSTMENT',
+    rows: (d) => (d.reason ? [['Reason', d.reason]] : []),
+  },
   reversal: {
     label: 'Reversal',
     title: (d) => `Refund · ${d.originalTitle || 'failed payment'}`,
