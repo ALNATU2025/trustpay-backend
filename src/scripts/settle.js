@@ -6,10 +6,54 @@
  */
 const env = require('../config/env');
 const { connect, disconnect } = require('../db');
-const { PosPayment, Settlement } = require('../models');
+const { PosPayment, Settlement, User } = require('../models');
+const providers = require('../providers');
+const { getConfig } = require('../services/catalog');
+const { payDebit } = require('../services/wallet');
+const { ProviderError } = require('../providers/errors');
 const { bpsOf } = require('../utils/money');
 const { CODES, createWithReference } = require('../utils/references');
 const { applyExternalCredit } = require('../services/wallet');
+
+/**
+ * If the merchant chose "pay to my bank", move the settled money from their wallet to that account.
+ * Runs at most once per settlement. If it fails the money simply stays in their wallet (refunded).
+ */
+async function sweepToBank(settlement, netMinor) {
+  const claimed = await Settlement.findOneAndUpdate({ _id: settlement._id, sweepStarted: { $ne: true } }, { $set: { sweepStarted: true } });
+  if (!claimed) return;
+  const user = await User.findById(settlement.owner);
+  const acct = user && user.settlementAccount;
+  if (!user || user.settlementTo !== 'bank' || !acct || !acct.accountNumber) return;
+  const cfg = await getConfig();
+  const fee = cfg.feesMinor.transfer || 0;
+  const amount = netMinor - fee;
+  if (amount <= 0) return;
+  try {
+    const out = await payDebit({
+      user,
+      kind: 'transfer',
+      subtype: 'transfer_bank_out',
+      code: CODES.transfer,
+      amountMinor: amount,
+      feeMinor: fee,
+      details: { bank: acct.bank, accountNumber: acct.accountNumber, accountName: acct.accountName, note: `POS settlement ${settlement.reference}` },
+      perform: (txn) =>
+        providers.bank.transfer({
+          bank: acct.bank,
+          accountNumber: acct.accountNumber,
+          accountName: acct.accountName,
+          amountMinor: amount,
+          reference: txn.reference,
+          narration: `TrustPay POS ${settlement.reference}`,
+        }),
+    });
+    await Settlement.updateOne({ _id: settlement._id }, { $set: { destination: `${acct.bank} •• ${String(acct.accountNumber).slice(-4)}` } });
+    console.log(`Settlement ${settlement.reference}: sent to ${acct.bank} (${out.txn.status})`);
+  } catch (err) {
+    console.error(`Settlement ${settlement.reference}: bank payout failed, money stays in the wallet:`, err && err.message);
+  }
+}
 
 async function finish(settlement) {
   const agg = await PosPayment.aggregate([
@@ -35,6 +79,7 @@ async function finish(settlement) {
     externalRef: `settle:${settlement._id}`,
   });
   await Settlement.updateOne({ _id: settlement._id }, { $set: { grossMinor: gross, feeMinor: fee, netMinor: net, count, status: 'Paid', settledAt: new Date() } });
+  await sweepToBank(settlement, net);
   return { gross, fee, net, count };
 }
 

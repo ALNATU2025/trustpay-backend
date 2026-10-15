@@ -75,6 +75,9 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - GET `/pos/code` -> `{ code (6 digits, permanent, created on first call), businessName, qr: "trustpay://pay/<code>" }` for the merchant to show/print.
 - POST `/lookup/merchant` `{code}` -> `{ name, code }` or 404
 - POST `/payments/pos/pay` `{code, amount, note?, pin}` + `Idempotency-Key` -> PaymentResult. Instant wallet-to-wallet payment to the merchant (customer txn `pos_pay_out`, merchant txn `pos_pay_in`); not part of the daily settlement because the merchant is credited at once.
+- GET `/pos/settlement-account` -> `{ account: {bank, accountName, accountNumber (masked), payToBank} | null }`
+- POST `/pos/settlement-account` `{bank, accountNumber, payToBank?, pin}` -> `{ account }` links a bank account after a name enquiry with the bank. POST `/pos/settlement-account/target` `{payToBank, pin}`; POST `/pos/settlement-account/unlink` `{pin}`. `/pos/overview` also returns `settlementAccount` and `merchantCode` for the POS dashboard.
+- Daily `npm run settle`: credits the merchant wallet as before, then if `payToBank` is on, sends the net (minus the normal bank transfer fee) to the linked account via the bank provider (once per settlement; on failure the money stays in the wallet).
 - POST `/webhooks/monime` **public** Monime events (`payout.*`, `payment.*`, `checkout_session.*`); the server re-reads the resource from Monime before changing any balance. See MONIME.md.
 - POST `/webhooks/funding` **public, HMAC** header `x-signature` = hex HMAC-SHA256 of the raw body with `WEBHOOK_SECRET`; body `{accountNumber, amount, reference, sender?}` -> credits the account once per `reference` (idempotent).
 

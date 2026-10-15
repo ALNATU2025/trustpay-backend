@@ -13,6 +13,7 @@ const { E } = require('../utils/errors');
 const { CODES, createWithReference, isDuplicateKey } = require('../utils/references');
 const { randomDigits } = require('../utils/crypto');
 const { User } = require('../models');
+const { NotConfiguredError: NotCfg } = require('../providers/errors');
 const { fromMinor, bpsOf } = require('../utils/money');
 const env = require('../config/env');
 const { startOfDayUtc, addDays, addBusinessDays, hhmm, shortDate } = require('../utils/time');
@@ -35,6 +36,17 @@ function nextSettlementTime(now = new Date()) {
 }
 
 const kindTitle = (k) => (k === 'card' ? 'Card payment' : k === 'momo' ? 'Mobile money' : 'Bank transfer');
+
+const maskAcct = (n) => (n ? `•• ${String(n).slice(-4)}` : '');
+const presentSettlementAccount = (u) =>
+  u.settlementAccount && u.settlementAccount.accountNumber
+    ? {
+        bank: u.settlementAccount.bank,
+        accountName: u.settlementAccount.accountName,
+        accountNumber: maskAcct(u.settlementAccount.accountNumber),
+        payToBank: u.settlementTo === 'bank',
+      }
+    : null;
 
 const payLine = (p) => ({
   reference: p.reference,
@@ -72,6 +84,7 @@ router.get(
   '/overview',
   asyncHandler(async (req, res) => {
     const owner = req.user._id;
+    const me = await User.findById(owner).select('settlementAccount settlementTo merchantCode').lean();
     const [terminal, request, todayAgg, recent, preview] = await Promise.all([
       Terminal.findOne({ owner }).lean(),
       TerminalRequest.findOne({ user: owner }).sort({ createdAt: -1 }).lean(),
@@ -86,6 +99,8 @@ router.get(
     res.json({
       businessName: req.user.businessName || (request && request.businessName) || '',
       terminal: presentTerminal(terminal),
+      settlementAccount: presentSettlementAccount(me || {}),
+      merchantCode: (me && me.merchantCode) || null,
       today: { collected: fromMinor(today.total), count: today.count },
       nextSettlement: preview.settlement,
       recent: recent.map((p) => ({
@@ -187,6 +202,66 @@ router.post(
       return { status: 201, body: { charge: presentCharge(fresh) } };
     });
     res.status(out.status).json(out.body);
+  }),
+);
+
+/* ---- linked bank account (settlement account) ---- */
+
+router.get(
+  '/settlement-account',
+  asyncHandler(async (req, res) => {
+    const u = await User.findById(req.user._id).select('settlementAccount settlementTo').lean();
+    res.json({ account: presentSettlementAccount(u) });
+  }),
+);
+
+router.post(
+  '/settlement-account',
+  limits.pin,
+  validate(S.settlementAccount),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    const cfg = await getConfig();
+    if (!cfg.banks.some((x) => (typeof x === 'string' ? x === b.bank : x.name === b.bank))) throw E.validation('Choose a valid bank.');
+    await verifyPin(req.user._id, b.pin);
+    let ne;
+    try {
+      ne = await providers.bank.nameEnquiry({ bank: b.bank, accountNumber: b.accountNumber });
+    } catch (err) {
+      if (err instanceof NotCfg) throw E.unavailable('This service is not available yet.', 'PROVIDER_NOT_CONFIGURED');
+      throw E.upstream('We could not verify that account. Please try again.', 'LOOKUP_FAILED');
+    }
+    if (!ne || !ne.accountName) throw E.validation('We could not find that bank account. Check the bank and number.');
+    const u = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { settlementAccount: { bank: b.bank, accountNumber: b.accountNumber, accountName: ne.accountName }, settlementTo: b.payToBank === false ? 'wallet' : 'bank' } },
+      { new: true },
+    ).select('settlementAccount settlementTo');
+    res.json({ account: presentSettlementAccount(u) });
+  }),
+);
+
+router.post(
+  '/settlement-account/target',
+  limits.pin,
+  validate(S.settlementTarget),
+  asyncHandler(async (req, res) => {
+    const u0 = await User.findById(req.user._id).select('settlementAccount');
+    if (req.body.payToBank && !(u0.settlementAccount && u0.settlementAccount.accountNumber)) throw E.validation('Link a bank account first.');
+    await verifyPin(req.user._id, req.body.pin);
+    const u = await User.findByIdAndUpdate(req.user._id, { $set: { settlementTo: req.body.payToBank ? 'bank' : 'wallet' } }, { new: true }).select('settlementAccount settlementTo');
+    res.json({ account: presentSettlementAccount(u) });
+  }),
+);
+
+router.post(
+  '/settlement-account/unlink',
+  limits.pin,
+  validate(S.pinOnly),
+  asyncHandler(async (req, res) => {
+    await verifyPin(req.user._id, req.body.pin);
+    await User.updateOne({ _id: req.user._id }, { $unset: { settlementAccount: 1 }, $set: { settlementTo: 'wallet' } });
+    res.json({ account: null });
   }),
 );
 

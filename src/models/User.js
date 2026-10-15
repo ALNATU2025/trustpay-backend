@@ -17,6 +17,14 @@ const userSchema = new mongoose.Schema(
     businessName: { type: String, default: '', trim: true, maxlength: 120 },
     // Permanent code a merchant shares/prints (as text or QR) so customers can pay them. 6 digits.
     merchantCode: { type: String },
+    // Merchant's linked bank account (verified with the bank). With settlementTo 'bank' the daily POS
+    // settlement is sent there instead of staying in the TrustPay wallet.
+    settlementAccount: {
+      bank: String,
+      accountNumber: String,
+      accountName: String,
+    },
+    settlementTo: { type: String, enum: ['wallet', 'bank'], default: 'wallet' },
     address: { type: String, default: '', trim: true, maxlength: 240 },
 
     role: { type: String, enum: ['user', 'admin', 'support'], default: 'user' },

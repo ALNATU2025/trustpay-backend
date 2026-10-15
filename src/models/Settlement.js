@@ -13,6 +13,7 @@ const schema = new mongoose.Schema(
     status: { type: String, enum: ['Processing', 'Paid'], default: 'Processing' },
     settledAt: Date,
     destination: { type: String, default: 'TrustPay wallet' },
+    sweepStarted: { type: Boolean, default: false }, // bank payout attempted (never twice)
   },
   { timestamps: true },
 );
