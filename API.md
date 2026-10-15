@@ -78,6 +78,12 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - GET `/pos/settlement-account` -> `{ account: {bank, accountName, accountNumber (masked), payToBank} | null }`
 - POST `/pos/settlement-account` `{bank, accountNumber, payToBank?, pin}` -> `{ account }` links a bank account after a name enquiry with the bank. POST `/pos/settlement-account/target` `{payToBank, pin}`; POST `/pos/settlement-account/unlink` `{pin}`. `/pos/overview` also returns `settlementAccount` and `merchantCode` for the POS dashboard.
 - Daily `npm run settle`: credits the merchant wallet as before, then if `payToBank` is on, sends the net (minus the normal bank transfer fee) to the linked account via the bank provider (once per settlement; on failure the money stays in the wallet).
+- **Tiers** (limits editable by admin): Tier 1 Le 100/day and Le 500 balance; Tier 2 Le 500/day and Le 1,000 balance; Tier 3 unlimited. New accounts wait for admin approval (`KYC_MANUAL=true`, default) and start at Tier 1. Over the daily limit -> 403 `DAILY_LIMIT`; a top-up or incoming payment over the balance cap -> 403 `BALANCE_LIMIT`.
+- GET `/me/tier` -> `{ tier, limits:{daily,balance}, usedToday, nextTier, all, pendingRequest, lastRejection }`
+- POST `/me/documents` `{kind: "address_proof"|"business_document", mime: image/jpeg|image/png|application/pdf, data: base64 (3 MB max)}` -> 201 `{ document:{id} }`
+- POST `/me/tier-requests` `{tier, documentId, address? (tier 2), legalName?, businessNumber? (tier 3)}` -> 201. Shows up in Admin > Approvals as `tier_<id>` (with `documentId`).
+- Admin: GET `/admin/documents/:id` -> `{mime, data(base64)}`; GET `/admin/tiers` -> `{limits, counts}`; PUT `/admin/tiers` `{"Tier 1 · Basic": {daily, balance}}` (Leones, `null` = unlimited); decision on `tier_<id>` approves/rejects; PATCH `/admin/users/:id {tier}` sets a tier directly.
+- **Duplicate check**: the same payment (route, amount, target) within 2 minutes -> 409 `DUPLICATE_SUSPECTED`; the app asks and retries with header `X-Confirm-Duplicate: 1`. Top-ups are exempt.
 - POST `/webhooks/monime` **public** Monime events (`payout.*`, `payment.*`, `checkout_session.*`); the server re-reads the resource from Monime before changing any balance. See MONIME.md.
 - POST `/webhooks/funding` **public, HMAC** header `x-signature` = hex HMAC-SHA256 of the raw body with `WEBHOOK_SECRET`; body `{accountNumber, amount, reference, sender?}` -> credits the account once per `reference` (idempotent).
 

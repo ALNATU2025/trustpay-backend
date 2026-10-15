@@ -173,6 +173,7 @@ router.post(
     const out = await idempotent(req, 'pos.charge', async () => {
       assertCanTransact(req.user);
       const b = req.body;
+      await require('../services/tiers').assertCanReceive(req.user._id, b.amount);
       const name = `${req.user.businessName || req.user.firstName} POS`.slice(0, 64);
       const charge = await createWithReference(PosCharge, CODES.posCharge, (reference) => ({
         owner: req.user._id,

@@ -61,6 +61,19 @@ const bool = (name) => z.boolean(req(name));
 const note = optText('Note', 100);
 const idStr = (name) => text(name, { max: 64 });
 const accountNumber10 = digits('Account number', /^\d{10}$/, 'Account number must be 10 digits.');
+const limitValue = z
+  .union([z.null(), z.any()])
+  .transform((v, ctx) => {
+    if (v === null || v === '' || v === undefined) return null; // unlimited
+    try {
+      return toMinor(v, { allowZero: false, max: 1e12, label: 'Limit' });
+    } catch (e) {
+      ctx.addIssue({ code: 'custom', message: e.message });
+      return z.NEVER;
+    }
+  });
+const tierLimit = z.object({ daily: limitValue.optional(), balance: limitValue.optional() }).partial();
+
 const bankAccount = digits('Account number', /^\d{6,20}$/, 'Enter a valid account number.');
 
 const page = z.coerce.number().int().min(1, 'Page must be 1 or more.').default(1);
@@ -173,6 +186,23 @@ const S = {
     payToBank: z.boolean().optional(),
     pin,
   }),
+  uploadDocument: z.object({
+    kind: z.enum(['address_proof', 'business_document'], { errorMap: () => ({ message: 'Unknown document type.' }) }),
+    mime: z.enum(['image/jpeg', 'image/png', 'application/pdf'], { errorMap: () => ({ message: 'Upload a JPG, PNG or PDF file.' }) }),
+    data: z.string(req('File')).min(100, 'The file is empty.').max(4_200_000, 'The file is too large (3 MB max).'),
+  }),
+  tierRequest: z.object({
+    tier: z.enum(['Tier 2 · Verified', 'Tier 3 · Premium'], { errorMap: () => ({ message: 'Choose Tier 2 or Tier 3.' }) }),
+    documentId: z.string(req('Document')).regex(/^[a-f0-9]{24}$/i, 'Upload your document first.'),
+    address: optText('Address', 240),
+    legalName: optText('Legal company name', 160),
+    businessNumber: optText('Business number', 60),
+  }),
+  tierLimits: z.object({
+    'Tier 1 · Basic': tierLimit,
+    'Tier 2 · Verified': tierLimit,
+    'Tier 3 · Premium': tierLimit,
+  }).partial(),
   pinOnly: z.object({ pin }),
   settlementTarget: z.object({ payToBank: bool('Pay to bank'), pin }),
   lookupMerchant: z.object({ code: digits('Merchant code', /^\d{6}$/, 'Merchant code is 6 digits.') }),

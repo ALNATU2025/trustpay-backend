@@ -1,7 +1,10 @@
 'use strict';
 const express = require('express');
 const providers = require('../providers');
-const { User, Recipient, Txn } = require('../models');
+const { User, Recipient, Txn, RecentPay } = require('../models');
+const { hmacHex } = require('../utils/crypto');
+const { isDuplicateKey } = require('../utils/references');
+const { assertCanReceive } = require('../services/tiers');
 const S = require('../validators/schemas');
 const { validate } = require('../middleware/validate');
 const { requireAuth, requireOnboarded } = require('../middleware/auth');
@@ -23,12 +26,43 @@ router.use(requireAuth, requireOnboarded, limits.payment);
 
 const pack = (out, extra = {}) => ({ transaction: present(out.txn), balance: fromMinor(out.balanceMinor), ...extra });
 
+/**
+ * Catches an accidental double payment: the same amount to the same target within 2 minutes (e.g. a second tap
+ * on another screen). The app then asks the customer and retries with `X-Confirm-Duplicate: 1`.
+ */
+async function guardDuplicate(req, route) {
+  const b = req.body || {};
+  const target = b.accountNumber || b.number || b.code || b.phone || b.meter || b.provider || '';
+  if (route.startsWith('funding.')) return null; // adding money twice is normal
+  if (!b.amount && !b.planId && !b.packageId) return null;
+  const fp = hmacHex('dup', `${route}|${b.amount || b.planId || b.packageId}|${target}|${b.network || ''}`);
+  const user = req.user._id;
+  try {
+    await RecentPay.create({ user, fp });
+  } catch (err) {
+    if (!isDuplicateKey(err)) throw err;
+    if (req.get('X-Confirm-Duplicate') !== '1') {
+      throw E.conflict('You made the same payment a moment ago. Do you want to pay again?', 'DUPLICATE_SUSPECTED');
+    }
+    await RecentPay.updateOne({ user, fp }, { $set: { createdAt: new Date() } }).catch(() => {});
+  }
+  return fp;
+}
+
 /** Runs a payment once per Idempotency-Key and sends the PaymentResult. */
 function handle(route, run) {
   return asyncHandler(async (req, res) => {
     const out = await idempotent(req, route, async () => {
       assertCanTransact(req.user);
-      const result = await run(req);
+      const fp = await guardDuplicate(req, route);
+      let result;
+      try {
+        result = await run(req);
+      } catch (err) {
+        // The payment did not go through: let the customer try again straight away.
+        if (fp) await RecentPay.deleteOne({ user: req.user._id, fp }).catch(() => {});
+        throw err;
+      }
       return { status: result.status || 200, body: result.body };
     });
     res.status(out.status).json(out.body);
@@ -111,6 +145,7 @@ router.post(
     const b = req.body;
     const to = await User.findOne({ accountNumber: b.accountNumber, status: 'active', onboardingStep: 'done' }).select('firstName lastName accountNumber');
     if (!to || String(to._id) === String(req.user._id)) throw E.validation('We could not find a TrustPay account for that number.');
+    await assertCanReceive(to._id, b.amount, { self: false });
     await verifyPin(req.user._id, b.pin);
     const toName = fullName(to);
     const out = await payDebit({
@@ -163,6 +198,7 @@ router.post(
     const b = req.body;
     const to = await User.findOne({ merchantCode: b.code, status: 'active', onboardingStep: 'done' }).select('firstName lastName businessName accountNumber');
     if (!to || String(to._id) === String(req.user._id)) throw E.validation('We could not find a merchant with that code.');
+    await assertCanReceive(to._id, b.amount, { self: false });
     await verifyPin(req.user._id, b.pin);
     const merchantName = to.businessName || fullName(to);
     const out = await payDebit({
@@ -284,6 +320,7 @@ router.post(
   handle('funding.checkout', async (req) => {
     const b = req.body;
     const user = req.user;
+    await assertCanReceive(user._id, b.amount);
     const txn = await createWithReference(Txn, CODES.funding, (reference) => ({
       user: user._id,
       reference,
@@ -327,6 +364,7 @@ router.post(
   handle('funding.momoCode', async (req) => {
     const b = req.body;
     const user = req.user;
+    await assertCanReceive(user._id, b.amount);
     log.info('momo-code: start', { provider: b.provider });
     const cfg = await getConfig();
     log.info('momo-code: config loaded');

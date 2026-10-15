@@ -17,6 +17,7 @@ const { ProviderError, NotConfiguredError } = require('../providers/errors');
 const log = require('../utils/log');
 const { present } = require('./presenter');
 
+const { assertCanSpend } = require('./tiers');
 const APPLIED_KEEP = 200;
 
 const fullName = (u) => `${u.firstName} ${u.lastName}`.trim();
@@ -95,6 +96,7 @@ async function reverse(txn, balanceMinor, reason) {
 async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, details = {}, perform }) {
   assertCanTransact(user);
   const totalMinor = amountMinor + feeMinor;
+  await assertCanSpend(user, totalMinor, subtype);
 
   const txn = await createWithReference(Txn, code, (reference) => ({
     user: user._id,

@@ -198,7 +198,7 @@ router.post(
     user.onboardingStep = 'done';
     if (user.kycStatus === 'approved') {
       user.status = 'active';
-      user.tier = 'Tier 2 · Verified';
+      user.tier = 'Tier 1 · Basic';
     } // else: stays pending_kyc / Tier 1 until an admin approves; payments stay blocked until then
     await user.save();
     res.json({ user: presentUser(user) });

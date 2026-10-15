@@ -1,6 +1,7 @@
 'use strict';
 const express = require('express');
-const { User, Txn, Ticket, Message, Approval, TerminalRequest, Terminal } = require('../models');
+const { User, Txn, Ticket, Message, Approval, TerminalRequest, Terminal, TierRequest, Document } = require('../models');
+const tiers = require('../services/tiers');
 const PosPayment = require('../models/PosPayment');
 const Settlement = require('../models/Settlement');
 const S = require('../validators/schemas');
@@ -377,12 +378,24 @@ router.get(
 router.get(
   '/approvals',
   asyncHandler(async (req, res) => {
-    const [limits, pos, kyc] = await Promise.all([
+    const [limits, pos, kyc, tierReqs] = await Promise.all([
       Approval.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(50).lean(),
       TerminalRequest.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(50).lean(),
       User.find({ kycStatus: 'pending' }).sort({ kycSubmittedAt: 1 }).limit(50).lean(),
+      TierRequest.find({ status: 'pending' }).sort({ createdAt: 1 }).limit(50).lean(),
     ]);
+    const reqUsers = await User.find({ _id: { $in: tierReqs.map((t) => t.user) } }).select('firstName lastName').lean();
+    const nameOf = Object.fromEntries(reqUsers.map((u) => [String(u._id), `${u.firstName} ${u.lastName}`.trim()]));
     const items = [
+      ...tierReqs.map((t) => ({
+        id: `tier_${t._id}`,
+        type: 'tier',
+        title: `${nameOf[String(t.user)] || 'Customer'} · upgrade to ${t.tier.split(' · ')[0]}`,
+        detail: t.tier.startsWith('Tier 2') ? `Address: ${t.address || '—'}` : `${t.legalName || '—'} · Reg. no ${t.businessNumber || '—'}`,
+        documentId: String(t.document),
+        userId: String(t.user),
+        createdAt: iso(t.createdAt),
+      })),
       ...limits.map((a) => ({ id: `lim_${a._id}`, type: 'limit', title: a.title, detail: a.detail, createdAt: iso(a.createdAt) })),
       ...pos.map((r) => ({
         id: `pos_${r._id}`,
@@ -464,14 +477,62 @@ router.post(
     } else if (kind === 'kyc') {
       const u = await User.findOneAndUpdate(
         { _id: rawId, kycStatus: 'pending' },
-        { $set: { kycStatus: approve ? 'approved' : 'rejected', kycReason: reason, ...(approve ? { status: 'active', tier: 'Tier 2 · Verified' } : {}) } },
+        { $set: { kycStatus: approve ? 'approved' : 'rejected', kycReason: reason, ...(approve ? { status: 'active', tier: 'Tier 1 · Basic' } : {}) } },
       );
       if (!u) throw E.notFound('This request was already handled.');
+    } else if (kind === 'tier') {
+      const t = await TierRequest.findOne({ _id: rawId, status: 'pending' });
+      if (!t) throw E.notFound('This request was already handled.');
+      if (approve) {
+        await User.updateOne({ _id: t.user }, { $set: { tier: t.tier, ...(t.tier.startsWith('Tier 2') && t.address ? { address: t.address } : {}), ...(t.tier.startsWith('Tier 3') && t.legalName ? { businessName: t.legalName } : {}) } });
+      }
+      await TierRequest.updateOne({ _id: t._id, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } });
     } else {
       throw E.notFound('Approval not found.');
     }
     audit(req, 'approval.decision', { id: req.params.id, approve });
     res.json({ ok: true });
+  }),
+);
+
+/* ---- proof documents and tier limits ---- */
+
+router.get(
+  '/documents/:id',
+  asyncHandler(async (req, res) => {
+    if (!/^[a-f0-9]{24}$/i.test(req.params.id)) throw E.notFound('Document not found.');
+    const d = await Document.findById(req.params.id).select('+data').lean();
+    if (!d) throw E.notFound('Document not found.');
+    audit(req, 'document.view', { id: String(d._id), owner: String(d.user) });
+    res.json({ id: String(d._id), kind: d.kind, mime: d.mime, size: d.size, data: Buffer.from(d.data.buffer || d.data).toString('base64') });
+  }),
+);
+
+const presentLimits = (all) =>
+  Object.fromEntries(Object.entries(all).map(([t, l]) => [t, { daily: l.dailyMinor == null ? null : fromMinor(l.dailyMinor), balance: l.balanceMinor == null ? null : fromMinor(l.balanceMinor) }]));
+
+router.get(
+  '/tiers',
+  asyncHandler(async (req, res) => {
+    const counts = await User.aggregate([{ $match: { role: 'user' } }, { $group: { _id: '$tier', n: { $sum: 1 } } }]);
+    res.json({ limits: presentLimits(await tiers.getLimits()), counts: Object.fromEntries(counts.map((c) => [c._id, c.n])) });
+  }),
+);
+
+router.put(
+  '/tiers',
+  adminOnly,
+  validate(S.tierLimits),
+  asyncHandler(async (req, res) => {
+    const next = {};
+    for (const [t, v] of Object.entries(req.body)) {
+      next[t] = {};
+      if ('daily' in v) next[t].dailyMinor = v.daily;
+      if ('balance' in v) next[t].balanceMinor = v.balance;
+    }
+    const saved = await tiers.setLimits(next);
+    audit(req, 'tiers.update', { limits: JSON.stringify(next) });
+    res.json({ limits: presentLimits(saved) });
   }),
 );
 

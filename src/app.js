@@ -16,12 +16,15 @@ function createApp() {
 
   app.use(helmet());
   const origins = env.corsOrigins === '*' ? '*' : env.corsOrigins.split(',').map((s) => s.trim()).filter(Boolean);
-  app.use(cors({ origin: origins, allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'], maxAge: 86400 }));
+  app.use(cors({ origin: origins, allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Confirm-Duplicate'], maxAge: 86400 }));
   app.use(compression());
   if (!env.isTest) {
     // Method, path, status and time only. Bodies and headers are never logged.
     app.use(morgan(':method :url :status :response-time ms', { skip: (req) => req.path === '/api/health' }));
   }
+
+  // Proof documents (photos / PDFs as base64) need a bigger body than normal requests.
+  app.use('/api/me/documents', express.json({ limit: '5mb' }));
 
   // Keep the raw bytes: webhook signatures are computed over them.
   app.use(express.json({ limit: '100kb', verify: (req, res, buf) => { req.rawBody = buf; } }));
