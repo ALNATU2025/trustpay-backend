@@ -78,8 +78,10 @@ async function handleCode(id) {
   const txn = await Txn.findOne({ providerRef: id, subtype: 'funding_momo_code' });
   if (!txn) return { handled: false };
   const code = await client.read(`/v1/payment-codes/${encodeURIComponent(id)}`);
-  if (code.status === 'completed') return { handled: true, ...(await settleCredit(txn._id)) };
-  if (code.status === 'expired' || code.status === 'cancelled') {
+  const state = String(code.status || '').toLowerCase();
+  if (!['pending', 'processing', 'completed', 'expired', 'cancelled'].includes(state)) log.warn('Payment code has an unfamiliar status', { status: code.status });
+  if (['completed', 'fulfilled', 'paid', 'successful'].includes(state)) return { handled: true, ...(await settleCredit(txn._id)) };
+  if (state === 'expired' || state === 'cancelled') {
     return { handled: true, ...(await failCredit(txn._id, 'The payment code expired before it was used.')) };
   }
   return { handled: true, changed: false };
@@ -140,4 +142,25 @@ async function reconcilePending({ minAgeMs = 60 * 1000, limit = 200 } = {}) {
   return out;
 }
 
-module.exports = { checkSignature, processEvent, reconcilePending };
+const lastLook = new Map();
+
+/**
+ * Called while the app polls a Pending top-up: asks Monime for the real state (at most every 3 s per
+ * transaction) so the wallet is credited even if the webhook is late or not registered.
+ */
+async function refreshPending(txn) {
+  if (!txn || txn.status !== 'Pending' || !txn.providerRef || env.providerMode !== 'live') return { changed: false };
+  const now = Date.now();
+  if (now - (lastLook.get(String(txn._id)) || 0) < 3000) return { changed: false };
+  lastLook.set(String(txn._id), now);
+  if (lastLook.size > 5000) lastLook.clear();
+  try {
+    if (txn.subtype === 'funding_momo_code') return await handleCode(txn.providerRef);
+    if (txn.subtype === 'funding_checkout') return await handleSession(txn.providerRef);
+  } catch (err) {
+    log.warn('Pending check failed', { reference: txn.reference, message: err && err.message });
+  }
+  return { changed: false };
+}
+
+module.exports = { checkSignature, processEvent, reconcilePending, refreshPending };

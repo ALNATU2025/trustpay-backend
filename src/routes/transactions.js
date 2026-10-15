@@ -7,6 +7,7 @@ const { requireAuth } = require('../middleware/auth');
 const asyncHandler = require('../utils/asyncHandler');
 const { E } = require('../utils/errors');
 const { present } = require('../services/presenter');
+const { refreshPending } = require('../services/monime');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -54,8 +55,12 @@ router.get(
 router.get(
   '/transactions/:id',
   asyncHandler(async (req, res) => {
-    const t = await Txn.findOne({ _id: req.params.id, user: req.user._id }).lean();
+    let t = await Txn.findOne({ _id: req.params.id, user: req.user._id }).lean();
     if (!t) throw E.notFound('We could not find that transaction.');
+    if (t.status === 'Pending') {
+      const r = await refreshPending(t);
+      if (r && r.changed) t = await Txn.findById(t._id).lean();
+    }
     res.json({ transaction: present(t) });
   }),
 );

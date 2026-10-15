@@ -18,6 +18,14 @@ async function main() {
   server.keepAliveTimeout = 65 * 1000;
   server.headersTimeout = 70 * 1000;
 
+  // Safety net for missed webhooks: settle anything still Pending every minute (live mode only).
+  if (env.providerMode === 'live') {
+    const { reconcilePending } = require('./services/monime');
+    setInterval(() => {
+      reconcilePending({ minAgeMs: 30 * 1000 }).catch((e) => log.warn('Reconcile run failed', { message: e && e.message }));
+    }, 60 * 1000).unref();
+  }
+
   let stopping = false;
   const stop = async (signal) => {
     if (stopping) return;
