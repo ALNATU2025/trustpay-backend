@@ -18,6 +18,8 @@ const log = require('../utils/log');
 const { present } = require('./presenter');
 
 const { assertCanSpend } = require('./tiers');
+const { formatLe } = require('../utils/money');
+const notify = require('./notify');
 const APPLIED_KEEP = 200;
 
 const fullName = (u) => `${u.firstName} ${u.lastName}`.trim();
@@ -171,6 +173,11 @@ async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, 
     }
     await Txn.updateOne({ _id: txn._id }, { $set: set });
     const done = await Txn.findById(txn._id).lean();
+    notify.notifyAdmins('payment', {
+      title: 'Payment made',
+      body: `${fullName(user)} · ${present(done).title} · ${formatLe(done.totalMinor)}`,
+      data: { reference: done.reference, userId: String(user._id) },
+    });
     return { txn: done, balanceMinor: after.balanceMinor };
   } catch (err) {
     return flagForReview(err && err.message);
@@ -267,6 +274,7 @@ async function applyExternalCredit({ userId, kind, subtype, code, amountMinor, f
     await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } });
   }
   const done = await Txn.findById(txn._id).lean();
+  if (credit.applied) notify.creditApplied(done, fullName(user));
   return { txn: done, balanceMinor: credit.balanceMinor, duplicate: !credit.applied };
 }
 
@@ -286,6 +294,10 @@ async function settleDebit(txnId, outcome, reason) {
   const refund = await creditWallet(txn.user, txn.totalMinor, `refund:${txn._id}`);
   const r = await Txn.updateOne({ _id: txn._id, status: 'Pending' }, { $set: { status: 'Failed', failureReason: message, needsReview: false } });
   await reverse(txn, refund.balanceMinor, message);
+  if (r.modifiedCount > 0) {
+    notify.notifyUser(txn.user, { type: 'alert', title: 'Payment failed', body: `${message} Your money has been returned.`, data: { reference: txn.reference } });
+    notify.notifyAdmins('alert', { title: 'Payment failed after sending', body: `${txn.ownerName || 'A customer'} · ${formatLe(txn.totalMinor)} · ${message}`, data: { reference: txn.reference } });
+  }
   return { changed: r.modifiedCount > 0 };
 }
 
@@ -298,6 +310,7 @@ async function settleCredit(txnId) {
     { _id: txn._id, status: { $ne: 'Successful' } },
     { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor, needsReview: false }, $unset: { failureReason: 1 } },
   );
+  if (r.modifiedCount > 0) notify.creditApplied(txn);
   return { changed: r.modifiedCount > 0 };
 }
 

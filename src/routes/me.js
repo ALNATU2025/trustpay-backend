@@ -180,6 +180,7 @@ router.post(
         businessNumber: b.businessNumber,
         document: doc._id,
       });
+      require('../services/notify').notifyAdmins('approval', { title: 'Upgrade request', body: `${u.firstName} ${u.lastName} asked for ${b.tier}.`, data: { userId: String(u._id) } });
       res.status(201).json({ message: 'We received your request and will review it soon.', id: String(t._id) });
     } catch (err) {
       if (isDuplicateKey(err)) throw E.conflict('You already have an upgrade request waiting for review.', 'ALREADY_REQUESTED');

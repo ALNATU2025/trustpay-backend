@@ -55,6 +55,9 @@ const userSchema = new mongoose.Schema(
 
     // Security state
     tokenVersion: { type: Number, default: 0 },
+    // Phone push tokens (FCM) and which kinds of alerts a staff member wants.
+    deviceTokens: { type: [String], default: [], select: false },
+    notifyPrefs: { type: mongoose.Schema.Types.Mixed, default: {} },
     loginFailCount: { type: Number, default: 0 },
     loginLockedUntil: Date,
     pinFailCount: { type: Number, default: 0 },

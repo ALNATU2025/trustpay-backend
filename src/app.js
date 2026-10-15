@@ -65,6 +65,7 @@ function createApp() {
   api.use(require('./routes/catalog'));
   api.use(require('./routes/me'));
   api.use(require('./routes/transactions'));
+  api.use(require('./routes/notifications'));
   app.use('/api', api);
 
   app.use(notFound);

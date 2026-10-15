@@ -375,6 +375,7 @@ router.post(
           return {};
         },
       });
+      require('../services/notify').notifyAdmins('approval', { title: 'POS terminal request', body: `${req.user.firstName} ${req.user.lastName} · ${b.businessName}`, data: { userId: String(req.user._id) } });
       const req2 = request || (await TerminalRequest.findOne({ reference: result.txn.reference }).lean());
       const plain = req2 ? (req2.toObject ? req2.toObject() : req2) : null;
       return {

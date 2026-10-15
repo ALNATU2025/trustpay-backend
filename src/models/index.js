@@ -13,6 +13,8 @@ const models = {
   Settlement: require('./Settlement'),
   PosCharge: require('./PosCharge'),
   Setting: require('./Setting'),
+  Notification: require('./Notification'),
+  Broadcast: require('./Broadcast'),
   Document: require('./Document'),
   TierRequest: require('./TierRequest'),
   RecentPay: require('./RecentPay'),

@@ -5,6 +5,8 @@ const { User, Recipient, Txn, RecentPay } = require('../models');
 const { hmacHex } = require('../utils/crypto');
 const { isDuplicateKey } = require('../utils/references');
 const { assertCanReceive } = require('../services/tiers');
+const notify = require('../services/notify');
+const { formatLe } = require('../utils/money');
 const S = require('../validators/schemas');
 const { validate } = require('../middleware/validate');
 const { requireAuth, requireOnboarded } = require('../middleware/auth');
@@ -183,6 +185,7 @@ router.post(
         }
         // The recipient HAS the money now: from here on never report a failure (that would refund the sender too).
         await Txn.updateOne({ _id: inbound._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } }).catch(() => {});
+        notify.notifyUser(to._id, { type: 'funding', title: 'Money received', body: `${fullName(req.user)} sent you ${formatLe(b.amount)}.`, data: { reference: inbound.reference } });
         return {};
       },
     });
@@ -234,6 +237,7 @@ router.post(
           throw new ProviderError('We could not complete the payment.', { outcome: 'failed' });
         }
         await Txn.updateOne({ _id: inbound._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } }).catch(() => {});
+        notify.notifyUser(to._id, { type: 'funding', title: 'Money received', body: `${fullName(req.user)} sent you ${formatLe(b.amount)}.`, data: { reference: inbound.reference } });
         return {};
       },
     });

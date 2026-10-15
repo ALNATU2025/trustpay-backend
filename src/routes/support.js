@@ -19,6 +19,9 @@ async function addMessage(ticket, { from, text, author }) {
     { _id: ticket._id },
     { $set: { lastMessage: { from, text: text.slice(0, 200), createdAt: msg.createdAt }, lastMessageAt: msg.createdAt } },
   );
+  if (from === 'agent') {
+    require('../services/notify').notifyUser(ticket.user, { type: 'message', title: 'New message from TrustPay', body: text.slice(0, 140), data: { ticketId: String(ticket._id) } });
+  }
   return msg;
 }
 

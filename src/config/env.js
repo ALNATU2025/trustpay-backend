@@ -56,6 +56,8 @@ const env = {
   // Mongo _ids (comma separated) that always get full admin access. Defaults to the TrustPay owner account.
   superAdminIds: str(process.env.SUPER_ADMIN_IDS, '6ad0e47586522f7476ca3775').split(',').map((x) => x.trim()).filter(Boolean),
   otpDebug: bool(process.env.OTP_DEBUG, false),
+  // Optional phone push (Firebase Cloud Messaging). Paste the Firebase service-account JSON here. Empty = in-app inbox only.
+  fcmServiceAccountJson: str(process.env.FCM_SERVICE_ACCOUNT_JSON),
   // Monime (https://docs.monime.io): payouts to banks / mobile money and hosted checkout (card, bank, mobile money).
   monime: {
     baseUrl: str(process.env.MONIME_BASE_URL, 'https://api.monime.io').replace(/\/+$/, ''),

@@ -2,6 +2,8 @@
 const express = require('express');
 const { User, Txn, Ticket, Message, Approval, TerminalRequest, Terminal, TierRequest, Document } = require('../models');
 const tiers = require('../services/tiers');
+const { notifyUser, broadcast } = require('../services/notify');
+const { Broadcast, Notification } = require('../models');
 const PosPayment = require('../models/PosPayment');
 const Settlement = require('../models/Settlement');
 const S = require('../validators/schemas');
@@ -21,6 +23,7 @@ const { addMessage } = require('./support');
 const log = require('../utils/log');
 const { normalisePhone, formatLocal } = require('../utils/phone');
 
+const limits = require('../middleware/limits');
 const router = express.Router();
 router.use(requireAuth, requireRole('admin', 'support'));
 const adminOnly = requireRole('admin');
@@ -443,10 +446,14 @@ router.post(
     const [kind, rawId] = String(req.params.id).split(/_(.+)/);
     const { approve, reason } = req.body;
     const decided = { decidedBy: req.user._id, decidedAt: new Date(), reason };
+    let who = null; // customer to tell about the decision
+    let what = '';
 
     if (kind === 'lim') {
       const a = await Approval.findOne({ _id: rawId, status: 'pending' });
       if (!a) throw E.notFound('This request was already handled.');
+      who = a.user;
+      what = 'Your request for higher limits';
       if (approve) await User.updateOne({ _id: a.user }, { $set: { tier: a.requestedTier } }); // idempotent, done first
       await Approval.updateOne({ _id: a._id, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } });
     } else if (kind === 'pos') {
@@ -458,6 +465,8 @@ router.post(
         { new: true },
       );
       if (!r) throw E.notFound('This request was already handled.');
+      who = r.user;
+      what = 'Your POS terminal request';
       if (approve) {
         const t = (await Terminal.findOne({ owner: r.user })) || (await newTerminal(r));
         await TerminalRequest.updateOne({ _id: r._id }, { $set: { status: 'approved', terminal: t._id, decidedAt: new Date(), reason } });
@@ -480,15 +489,26 @@ router.post(
         { $set: { kycStatus: approve ? 'approved' : 'rejected', kycReason: reason, ...(approve ? { status: 'active', tier: 'Tier 1 · Basic' } : {}) } },
       );
       if (!u) throw E.notFound('This request was already handled.');
+      who = u._id;
+      what = 'Your account';
     } else if (kind === 'tier') {
       const t = await TierRequest.findOne({ _id: rawId, status: 'pending' });
       if (!t) throw E.notFound('This request was already handled.');
+      who = t.user;
+      what = `Your upgrade to ${t.tier}`;
       if (approve) {
         await User.updateOne({ _id: t.user }, { $set: { tier: t.tier, ...(t.tier.startsWith('Tier 2') && t.address ? { address: t.address } : {}), ...(t.tier.startsWith('Tier 3') && t.legalName ? { businessName: t.legalName } : {}) } });
       }
       await TierRequest.updateOne({ _id: t._id, status: 'pending' }, { $set: { status: approve ? 'approved' : 'rejected', ...decided } });
     } else {
       throw E.notFound('Approval not found.');
+    }
+    if (who) {
+      notifyUser(who, {
+        type: 'approval',
+        title: approve ? `${what} was approved` : `${what} was not approved`,
+        body: approve ? (kind === 'kyc' ? 'You can now use your TrustPay account.' : 'You can see the change in your profile.') : reason || 'Contact support if you have questions.',
+      });
     }
     audit(req, 'approval.decision', { id: req.params.id, approve });
     res.json({ ok: true });
@@ -533,6 +553,43 @@ router.patch(
     const saved = await tiers.setLimits(next);
     audit(req, 'tiers.update', { limits: JSON.stringify(next) });
     res.json({ limits: presentLimits(saved) });
+  }),
+);
+
+/* ---- notifications: send to customers, history ---- */
+
+router.post(
+  '/notifications',
+  adminOnly,
+  validate(S.adminNotify),
+  asyncHandler(async (req, res) => {
+    const b = req.body;
+    if (b.audience === 'user') {
+      const u = await User.findById(b.userId).select('_id role');
+      if (!u || u.role !== 'user') throw E.notFound('Customer not found.');
+    }
+    if (b.audience === 'tier' && !b.tier) throw E.validation('Choose a tier.');
+    const count = await broadcast({ by: req.user._id, audience: b.audience, tier: b.tier, userId: b.userId, kind: b.kind, title: b.title, body: b.body });
+    audit(req, 'notification.send', { audience: b.audience, kind: b.kind, count });
+    res.status(201).json({ sent: count });
+  }),
+);
+
+router.get(
+  '/notifications',
+  asyncHandler(async (req, res) => {
+    const rows = await Broadcast.find().sort({ createdAt: -1 }).limit(30).lean();
+    res.json({
+      items: rows.map((r) => ({
+        id: String(r._id),
+        kind: r.kind,
+        title: r.title,
+        body: r.body,
+        audience: r.audience === 'tier' ? r.tier : r.audience,
+        count: r.count,
+        createdAt: iso(r.createdAt),
+      })),
+    });
   }),
 );
 

@@ -14,6 +14,7 @@ const { isDuplicateKey } = require('../utils/references');
 const sec = require('../services/security');
 const { presentUser } = require('../services/presenter');
 
+const notify = require('../services/notify');
 const router = express.Router();
 
 const LOGIN_MAX_FAILS = 5;
@@ -85,6 +86,8 @@ router.post(
       // The account exists; the app lets the user ask for a new code.
       if (err.status !== 503) throw err;
     }
+    notify.notifyUser(user._id, { type: 'welcome', title: 'Welcome to TrustPay', body: 'Finish setting up your account. We will let you know as soon as it is approved.' });
+    notify.notifyAdmins('signup', { title: 'New signup', body: `${user.firstName} ${user.lastName} · ${user.phone}`, data: { userId: String(user._id) } });
     res.status(201).json({ token: sec.signSession(user), user: presentUser(user), ...(code ? devEcho(code) : {}) });
   }),
 );
@@ -175,6 +178,7 @@ router.post(
     user.kycSubmittedAt = new Date();
     if (user.onboardingStep === 'identity') user.onboardingStep = 'pin';
     await user.save();
+    if (user.kycStatus === 'pending') notify.notifyAdmins('approval', { title: 'Account waiting for approval', body: `${user.firstName} ${user.lastName} finished sign up and needs approval.`, data: { userId: String(user._id) } });
     res.json({ user: presentUser(user) });
   }),
 );
