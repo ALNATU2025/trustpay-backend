@@ -9,6 +9,7 @@ const limits = require('../middleware/limits');
 const asyncHandler = require('../utils/asyncHandler');
 const { E } = require('../utils/errors');
 const { CODES, createWithReference } = require('../utils/references');
+const log = require('../utils/log');
 const { fromMinor, bpsOf } = require('../utils/money');
 const { ProviderError, NotConfiguredError } = require('../providers/errors');
 const { getConfig } = require('../services/catalog');
@@ -46,6 +47,15 @@ async function lookup(fn, notFound) {
     throw err;
   }
 }
+
+/** Fails a slow provider call with a clean 'failed' error instead of leaving the app waiting. */
+const withDeadline = (promise, ms, message) => {
+  let timer;
+  const t = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new ProviderError(message, { outcome: 'failed' })), ms);
+  });
+  return Promise.race([promise, t]).finally(() => clearTimeout(timer));
+};
 
 const pickProvider = (list, name, label) => {
   const found = list.find((p) => (typeof p === 'string' ? p === name : p.name === name));
@@ -267,7 +277,9 @@ router.post(
   handle('funding.momoCode', async (req) => {
     const b = req.body;
     const user = req.user;
+    log.info('momo-code: start', { provider: b.provider });
     const cfg = await getConfig();
+    log.info('momo-code: config loaded');
     pickProvider(cfg.mobileMoney, b.provider, 'wallet provider');
     const txn = await createWithReference(Txn, CODES.funding, (reference) => ({
       user: user._id,
@@ -284,10 +296,13 @@ router.post(
       ownerAccount: user.accountNumber,
       search: searchText([reference, 'funding mobile money', b.provider]),
     }));
+    log.info('momo-code: transaction created', { reference: txn.reference });
     let code;
     try {
-      code = await providers.paymentCode.create({ provider: b.provider, number: b.number, amountMinor: b.amount, reference: txn.reference, name: fullName(user) });
+      code = await withDeadline(providers.paymentCode.create({ provider: b.provider, number: b.number, amountMinor: b.amount, reference: txn.reference, name: fullName(user) }), 25000, 'The payment provider is taking too long. Please try again.');
+      log.info('momo-code: created', { reference: txn.reference });
     } catch (err) {
+      log.warn('momo-code: failed', { reference: txn.reference, message: err && err.message });
       const reason = err instanceof ProviderError && err.outcome === 'failed' && err.message ? err.message : 'The payment code could not be created.';
       await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: reason } });
       if (err instanceof NotConfiguredError || (err instanceof ProviderError && err.code === 'PROVIDER_NOT_CONFIGURED')) {
