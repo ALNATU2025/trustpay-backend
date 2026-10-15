@@ -23,6 +23,8 @@ function presentUser(u) {
     tier: u.tier,
     role: u.role,
     status: u.status,
+    kycStatus: u.kycStatus || '',
+    kycReason: u.kycReason || '',
     onboardingStep: u.onboardingStep,
     hasPin: !!u.hasPin,
     balance: fromMinor(u.balanceMinor),
