@@ -1,5 +1,4 @@
 'use strict';
-const log = require('../utils/log');
 const { Idempotency } = require('../models');
 const { E, AppError } = require('../utils/errors');
 const { hmacHex } = require('../utils/crypto');
@@ -22,9 +21,7 @@ async function idempotent(req, route, fn) {
   const requestHash = hmacHex('idem', `${route}:${JSON.stringify(req.body)}`);
 
   try {
-    log.info('idempotency: reserving key', { route });
     await Idempotency.create({ user, key, route, requestHash });
-    log.info('idempotency: reserved', { route });
   } catch (err) {
     if (!isDuplicateKey(err)) throw err;
     const doc = await Idempotency.findOne({ user, key }).lean();

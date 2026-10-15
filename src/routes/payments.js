@@ -19,18 +19,13 @@ const { idempotent } = require('../services/idempotency');
 const { present } = require('../services/presenter');
 
 const router = express.Router();
-const trace = (step) => (req, res, next) => {
-  if (req.method === 'POST') log.info(`payments: ${step}`, { url: req.originalUrl });
-  next();
-};
-router.use(trace('received'), requireAuth, trace('authenticated'), requireOnboarded, limits.payment, trace('ready'));
+router.use(requireAuth, requireOnboarded, limits.payment);
 
 const pack = (out, extra = {}) => ({ transaction: present(out.txn), balance: fromMinor(out.balanceMinor), ...extra });
 
 /** Runs a payment once per Idempotency-Key and sends the PaymentResult. */
 function handle(route, run) {
   return asyncHandler(async (req, res) => {
-    log.info('payments: handling', { route });
     const out = await idempotent(req, route, async () => {
       assertCanTransact(req.user);
       const result = await run(req);
@@ -445,6 +440,5 @@ router.post(
   }),
 );
 
+// NOTE: never attach other properties to `router`: `router.handle` is Express's own request entry point.
 module.exports = router;
-module.exports.handle = handle;
-module.exports.pack = pack;
