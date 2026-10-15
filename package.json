@@ -15,6 +15,7 @@
     "reconcile": "node src/scripts/reconcile.js",
     "monime:sync": "node src/scripts/monime-sync.js",
     "make-admin": "node src/scripts/make-admin.js",
+    "probe": "node src/scripts/probe.js",
     "check": "node src/scripts/check.js",
     "load-test": "node src/scripts/load-test.js",
     "smoke": "node src/scripts/smoke.js",
