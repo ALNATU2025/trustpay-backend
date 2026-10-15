@@ -15,6 +15,8 @@ const userSchema = new mongoose.Schema(
     hasPin: { type: Boolean, default: false },
     accountNumber: { type: String, required: true },
     businessName: { type: String, default: '', trim: true, maxlength: 120 },
+    // Permanent code a merchant shares/prints (as text or QR) so customers can pay them. 6 digits.
+    merchantCode: { type: String },
     address: { type: String, default: '', trim: true, maxlength: 240 },
 
     role: { type: String, enum: ['user', 'admin', 'support'], default: 'user' },
@@ -57,6 +59,7 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ phone: 1 }, { unique: true });
 userSchema.index({ accountNumber: 1 }, { unique: true });
+userSchema.index({ merchantCode: 1 }, { unique: true, partialFilterExpression: { merchantCode: { $type: 'string' } } });
 userSchema.index({ role: 1, createdAt: -1 });
 userSchema.index({ onboardingStep: 1, kycStatus: 1, createdAt: 1 });
 userSchema.index({ lastLoginAt: -1 });

@@ -161,6 +161,13 @@ const S = {
   transferUser: z.object({ accountNumber: accountNumber10, amount: amount(), note, pin }),
   mmSend: z.object({ provider: text('Wallet provider'), number: phone('Wallet number'), amount: amount(), pin }),
   mmAdd: z.object({ provider: text('Wallet provider'), number: phone('Wallet number'), amount: amount(), code: otpCode }),
+  posPay: z.object({
+    code: digits('Merchant code', /^\d{6}$/, 'Merchant code is 6 digits.'),
+    amount: amount(),
+    note,
+    pin,
+  }),
+  lookupMerchant: z.object({ code: digits('Merchant code', /^\d{6}$/, 'Merchant code is 6 digits.') }),
   fundingCard: z.object({ amount: amount(), cardLast4: digits('Card last 4', /^\d{4}$/, 'Card last 4 must be 4 digits.'), brand: text('Card brand', { max: 30 }) }),
   fundingCheckout: z.object({ amount: amount() }),
   fundingMomoCode: z.object({ provider: text('Wallet provider'), number: phone('Wallet number'), amount: amount() }),

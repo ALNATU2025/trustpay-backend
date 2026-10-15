@@ -72,6 +72,9 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - POST `/payments/funding/momo-code` `{provider, number, amount}` -> `{ transaction, balance, ussdCode, expiresAt }`. Live: a Monime Payment Code locked to that wallet number; the customer dials `ussdCode` and approves; the transaction stays Pending until Monime confirms (webhook / reconcile). Sandbox: credited at once, `ussdCode` null.
 - POST `/pos/charges` `{amount, number (customer wallet, 9 digits), provider?, note?}` + `Idempotency-Key` -> 201 `{ charge: {id, reference, amount, status: Pending|Paid|Expired|Failed, ussdCode, expiresAt, customerPhone, note, failureReason} }`. Phone POS: no terminal needed. Live: Monime payment code locked to the customer's number; sandbox: Paid at once.
 - GET `/pos/charges` -> `{ items: [charge] }` (latest 20); GET `/pos/charges/:id` -> `{ charge }` (asks Monime while Pending, so the app can poll). When a charge is paid it becomes a POS payment (kind `momo`, terminal `PHONE`) and is paid out by the daily settlement.
+- GET `/pos/code` -> `{ code (6 digits, permanent, created on first call), businessName, qr: "trustpay://pay/<code>" }` for the merchant to show/print.
+- POST `/lookup/merchant` `{code}` -> `{ name, code }` or 404
+- POST `/payments/pos/pay` `{code, amount, note?, pin}` + `Idempotency-Key` -> PaymentResult. Instant wallet-to-wallet payment to the merchant (customer txn `pos_pay_out`, merchant txn `pos_pay_in`); not part of the daily settlement because the merchant is credited at once.
 - POST `/webhooks/monime` **public** Monime events (`payout.*`, `payment.*`, `checkout_session.*`); the server re-reads the resource from Monime before changing any balance. See MONIME.md.
 - POST `/webhooks/funding` **public, HMAC** header `x-signature` = hex HMAC-SHA256 of the raw body with `WEBHOOK_SECRET`; body `{accountNumber, amount, reference, sender?}` -> credits the account once per `reference` (idempotent).
 

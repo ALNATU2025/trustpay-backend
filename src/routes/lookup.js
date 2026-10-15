@@ -76,6 +76,16 @@ router.post(
 );
 
 router.post(
+  '/merchant',
+  validate(S.lookupMerchant),
+  asyncHandler(async (req, res) => {
+    const m = await User.findOne({ merchantCode: req.body.code, status: 'active', onboardingStep: 'done' }).select('firstName lastName businessName');
+    if (!m || String(m._id) === String(req.user._id)) throw E.notFound('We could not find a merchant with that code.');
+    res.json({ name: m.businessName || `${m.firstName} ${m.lastName}`.trim(), code: req.body.code });
+  }),
+);
+
+router.post(
   '/wallet',
   validate(S.lookupWallet),
   asyncHandler(async (req, res) => {

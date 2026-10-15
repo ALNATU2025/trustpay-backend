@@ -56,6 +56,20 @@ const KINDS = {
     eyebrow: 'TRANSACTIONS · RECEIPT',
     rows: (d) => [['Sender', d.senderName || '—'], ['TrustPay account', d.senderAccount || '—'], ...(d.note ? [['Note', d.note]] : [])],
   },
+  pos_pay_out: {
+    label: 'Merchant payment',
+    title: (d) => `Paid ${d.merchantName || 'merchant'}`,
+    banner: (d) => `Paid ${d.merchantName || 'merchant'}`,
+    eyebrow: 'TRANSACTIONS · PAYMENT RECEIPT',
+    rows: (d) => [['Merchant', d.merchantName || '—'], ['Merchant code', d.merchantCode || '—'], ...(d.note ? [['Note', d.note]] : [])],
+  },
+  pos_pay_in: {
+    label: 'Merchant sale',
+    title: (d) => `Sale · ${d.payerName || 'customer'}`,
+    banner: (d) => `Received from ${d.payerName || 'customer'}`,
+    eyebrow: 'TRANSACTIONS · RECEIPT',
+    rows: (d) => [['Customer', d.payerName || '—'], ...(d.note ? [['Note', d.note]] : [])],
+  },
   mm_send: {
     label: 'Mobile money',
     title: (d) => `To ${d.holderName || d.provider}`,

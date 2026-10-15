@@ -11,6 +11,8 @@ const limits = require('../middleware/limits');
 const asyncHandler = require('../utils/asyncHandler');
 const { E } = require('../utils/errors');
 const { CODES, createWithReference, isDuplicateKey } = require('../utils/references');
+const { randomDigits } = require('../utils/crypto');
+const { User } = require('../models');
 const { fromMinor, bpsOf } = require('../utils/money');
 const env = require('../config/env');
 const { startOfDayUtc, addDays, addBusinessDays, hhmm, shortDate } = require('../utils/time');
@@ -185,6 +187,34 @@ router.post(
       return { status: 201, body: { charge: presentCharge(fresh) } };
     });
     res.status(out.status).json(out.body);
+  }),
+);
+
+/** The merchant's permanent code (created on first use). Print it or turn `qr` into a QR code. */
+router.get(
+  '/code',
+  asyncHandler(async (req, res) => {
+    let user = await User.findById(req.user._id).select('merchantCode businessName firstName lastName');
+    if (!user.merchantCode) {
+      for (let i = 0; i < 20 && !user.merchantCode; i++) {
+        try {
+          const r = await User.findOneAndUpdate(
+            { _id: user._id, merchantCode: { $exists: false } },
+            { $set: { merchantCode: randomDigits(6) } },
+            { new: true },
+          ).select('merchantCode businessName firstName lastName');
+          user = r || (await User.findById(user._id).select('merchantCode businessName firstName lastName'));
+        } catch (err) {
+          if (!isDuplicateKey(err)) throw err;
+        }
+      }
+      if (!user.merchantCode) throw E.unavailable('Could not create your merchant code. Please try again.');
+    }
+    res.json({
+      code: user.merchantCode,
+      businessName: user.businessName || `${user.firstName} ${user.lastName}`.trim(),
+      qr: `trustpay://pay/${user.merchantCode}`,
+    });
   }),
 );
 

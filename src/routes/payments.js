@@ -155,6 +155,56 @@ router.post(
   }),
 );
 
+/** Pay a merchant by their code (typed or scanned from their QR). Instant, wallet to wallet. */
+router.post(
+  '/pos/pay',
+  validate(S.posPay),
+  handle('pos.pay', async (req) => {
+    const b = req.body;
+    const to = await User.findOne({ merchantCode: b.code, status: 'active', onboardingStep: 'done' }).select('firstName lastName businessName accountNumber');
+    if (!to || String(to._id) === String(req.user._id)) throw E.validation('We could not find a merchant with that code.');
+    await verifyPin(req.user._id, b.pin);
+    const merchantName = to.businessName || fullName(to);
+    const out = await payDebit({
+      user: req.user,
+      kind: 'pos',
+      subtype: 'pos_pay_out',
+      code: CODES.pos,
+      amountMinor: b.amount,
+      feeMinor: 0,
+      details: { merchantName, merchantCode: b.code, note: b.note },
+      perform: async (txn) => {
+        let inbound;
+        let credit;
+        try {
+          inbound = await createWithReference(Txn, CODES.pos, (reference) => ({
+            user: to._id,
+            reference,
+            kind: 'pos',
+            subtype: 'pos_pay_in',
+            direction: 'credit',
+            amountMinor: b.amount,
+            feeMinor: 0,
+            totalMinor: b.amount,
+            status: 'Pending',
+            details: { payerName: fullName(req.user), merchantCode: b.code, note: b.note },
+            ownerName: fullName(to),
+            ownerAccount: to.accountNumber,
+            search: searchText([reference, fullName(req.user), 'merchant sale']),
+            externalRef: `in:${txn._id}`,
+          }));
+          credit = await creditWallet(to._id, b.amount, `in:${txn._id}`);
+        } catch (err) {
+          throw new ProviderError('We could not complete the payment.', { outcome: 'failed' });
+        }
+        await Txn.updateOne({ _id: inbound._id }, { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor } }).catch(() => {});
+        return {};
+      },
+    });
+    return { body: pack(out) };
+  }),
+);
+
 router.post(
   '/mobile-money/send',
   validate(S.mmSend),
