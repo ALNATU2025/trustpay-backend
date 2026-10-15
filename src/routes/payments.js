@@ -19,13 +19,18 @@ const { idempotent } = require('../services/idempotency');
 const { present } = require('../services/presenter');
 
 const router = express.Router();
-router.use(requireAuth, requireOnboarded, limits.payment);
+const trace = (step) => (req, res, next) => {
+  if (req.method === 'POST') log.info(`payments: ${step}`, { url: req.originalUrl });
+  next();
+};
+router.use(trace('received'), requireAuth, trace('authenticated'), requireOnboarded, limits.payment, trace('ready'));
 
 const pack = (out, extra = {}) => ({ transaction: present(out.txn), balance: fromMinor(out.balanceMinor), ...extra });
 
 /** Runs a payment once per Idempotency-Key and sends the PaymentResult. */
 function handle(route, run) {
   return asyncHandler(async (req, res) => {
+    log.info('payments: handling', { route });
     const out = await idempotent(req, route, async () => {
       assertCanTransact(req.user);
       const result = await run(req);
