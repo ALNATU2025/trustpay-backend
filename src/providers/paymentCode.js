@@ -13,7 +13,6 @@ const env = require('../config/env');
 const select = require('./select');
 const { randomHex } = require('../utils/crypto');
 const { ProviderError } = require('./errors');
-const directory = require('./monime/directory');
 
 const DURATION = '15m';
 
@@ -30,8 +29,7 @@ const sandbox = {
 const client = () => require('./monime/client');
 
 const live = {
-  async create({ provider, number, amountMinor, reference, name }) {
-    const p = await directory.resolve('momo', provider);
+  async create({ number, amountMinor, reference, name }) {
     const body = {
       name: (name || 'TrustPay top-up').slice(0, 64),
       mode: 'one_time',
@@ -40,7 +38,7 @@ const live = {
       duration: DURATION,
       customer: name ? { name: String(name).slice(0, 64) } : undefined,
       reference: String(reference).slice(0, 64),
-      authorizedProviders: [p.providerId],
+      // Monime rejects a provider list together with a phone number: the number already pins the wallet.
       authorizedPhoneNumber: `232${number}`,
       metadata: { trustpayReference: reference },
     };
