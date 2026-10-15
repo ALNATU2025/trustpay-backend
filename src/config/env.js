@@ -53,6 +53,8 @@ const env = {
   cardKeyHex,
   webhookSecret,
   providerMode,
+  // Mongo _ids (comma separated) that always get full admin access. Defaults to the TrustPay owner account.
+  superAdminIds: str(process.env.SUPER_ADMIN_IDS, '6ad0e47586522f7476ca3775').split(',').map((x) => x.trim()).filter(Boolean),
   otpDebug: bool(process.env.OTP_DEBUG, false),
   // Monime (https://docs.monime.io): payouts to banks / mobile money and hosted checkout (card, bank, mobile money).
   monime: {

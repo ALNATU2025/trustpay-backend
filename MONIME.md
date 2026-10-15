@@ -6,7 +6,7 @@ TrustPay uses [Monime](https://docs.monime.io) (API version `caph.2025-08-23`) f
 | --- | --- | --- |
 | Send to a bank account | Payout (`destination.type = bank`) + Provider KYC name check | `POST /api/payments/transfer/bank` |
 | Send to a mobile-money wallet (Orange Money, Afrimoney) | Payout (`destination.type = momo`) + Provider KYC | `POST /api/payments/mobile-money/send` |
-| Add money with a card, a bank account or mobile money | Hosted Checkout Session | `POST /api/payments/funding/checkout` |
+| Add money with a card or mobile money (bank is switched off on the checkout page) | Hosted Checkout Session | `POST /api/payments/funding/checkout` |
 | Money arrives / payout finishes | Webhook + Get Payout / Get Checkout Session | `POST /api/webhooks/monime` |
 
 Card numbers never touch TrustPay: the customer pays on Monime's hosted page.
@@ -89,3 +89,7 @@ or schedule it every 5 minutes as a Render Cron Job (`render.yaml` has one ready
 - Some banks may not support name checks; the app then asks the customer to double-check the number (`unverified`).
 - Monime charges its own fees to your Space. TrustPay's own fees (`fees` in the catalog) are separate; check that they cover Monime's.
 - Holding customer funds and moving money normally needs approval from the Bank of Sierra Leone. Confirm what your Monime agreement covers.
+
+## Super admin
+
+`SUPER_ADMIN_IDS` (comma-separated Mongo `_id`s, default `6ad0e47586522f7476ca3775`) always get the `admin` role on their next request, which opens every admin and support feature. The id must belong to an existing user; register that account first. Or run `npm run make-admin -- <userId|phone> admin`.

@@ -37,7 +37,7 @@ const live = {
         successUrl: `${base}/api/pay/return?status=success&ref=${encodeURIComponent(reference)}`,
         cancelUrl: `${base}/api/pay/return?status=cancelled&ref=${encodeURIComponent(reference)}`,
         lineItems: [{ type: 'custom', name: 'Wallet top-up', price: { currency: 'SLE', value: amountMinor }, quantity: 1, reference: 'topup' }],
-        paymentOptions: { card: { disable: false }, bank: { disable: false }, momo: { disable: false }, wallet: { disable: true } },
+        paymentOptions: { card: { disable: false }, bank: { disable: true }, momo: { disable: false }, wallet: { disable: true } },
         metadata: { trustpayReference: reference },
       },
       `tp-${reference}`,

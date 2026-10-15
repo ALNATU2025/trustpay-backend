@@ -1,4 +1,5 @@
 'use strict';
+const env = require('../config/env');
 const { User } = require('../models');
 const { E } = require('../utils/errors');
 const { verifyToken } = require('../services/security');
@@ -13,6 +14,11 @@ const requireAuth = asyncHandler(async (req, res, next) => {
   const user = await User.findById(payload.sub);
   if (!user || (user.tokenVersion || 0) !== payload.tv) throw E.unauthorized('Your session has expired. Please sign in again.');
   if (user.status === 'suspended') throw E.forbidden('Your account is suspended. Please contact support.', 'SUSPENDED');
+  // Super admins always hold the admin role (every admin and support feature), whatever is stored.
+  if (env.superAdminIds.includes(String(user._id)) && user.role !== 'admin') {
+    user.role = 'admin';
+    await User.updateOne({ _id: user._id }, { $set: { role: 'admin' } });
+  }
   req.user = user;
   next();
 });
