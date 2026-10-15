@@ -14,12 +14,10 @@ const time = async (label, fn) => {
   }
 };
 
-const post = (base) => async () => {
-  const res = await fetch(`${base}/api/payments/funding/momo-code`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'probe-key-12345678' },
-    body: JSON.stringify({ provider: 'Orange Money', number: '76123456', amount: 10 }),
-  });
+const call = (base, method, path, { key = true, body = '{"provider":"Orange Money","number":"76123456","amount":10}' } = {}) => async () => {
+  const headers = { 'Content-Type': 'application/json' };
+  if (key) headers['Idempotency-Key'] = 'probe-key-12345678';
+  const res = await fetch(`${base}${path}`, { method, headers, body: method === 'GET' ? undefined : body, signal: AbortSignal.timeout(6000) });
   return `HTTP ${res.status}`;
 };
 
@@ -31,8 +29,13 @@ const post = (base) => async () => {
     await Idempotency.deleteOne({ user, key: 'probe-key-12345678' });
     return 'ok';
   });
-  await time(`POST to this server (localhost:${env.port}), expect HTTP 401`, post(`http://127.0.0.1:${env.port}`));
-  if (env.publicUrl) await time(`POST to public URL (${env.publicUrl}), expect HTTP 401`, post(env.publicUrl));
+  const local = `http://127.0.0.1:${env.port}`;
+  await time('A POST /payments/funding/momo-code (with key)   ', call(local, 'POST', '/api/payments/funding/momo-code'));
+  await time('B same, without Idempotency-Key                 ', call(local, 'POST', '/api/payments/funding/momo-code', { key: false }));
+  await time('C same, empty body {}                           ', call(local, 'POST', '/api/payments/funding/momo-code', { body: '{}' }));
+  await time('D GET /payments/anything                        ', call(local, 'GET', '/api/payments/anything'));
+  await time('E POST /lookup/bank (with key)                  ', call(local, 'POST', '/api/lookup/bank'));
+  await time('F POST /auth/login (with key, bad body)         ', call(local, 'POST', '/api/auth/login', { body: '{}' }));
   await mongoose.disconnect();
 })().catch((e) => {
   console.error(e.message);
