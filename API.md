@@ -68,6 +68,8 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - POST `/payments/airtime` `{network, phone, amount, pin}`
 - POST `/payments/data` `{network, phone, planId, pin}`
 - POST `/payments/subscription` `{category: "tv"|"internet", provider, accountNumber, packageId, phone, pin}`
+- POST `/payments/funding/checkout` `{amount}` -> `{ transaction, balance, checkoutUrl }`. Live: open `checkoutUrl` (Monime hosted page: card, bank or mobile money); the transaction is Pending until the payment is confirmed by webhook. Sandbox: credited at once and `checkoutUrl` is null. Catalog `features.fundingMode` is `"checkout"` (live) or `"direct"` (sandbox).
+- POST `/webhooks/monime` **public** Monime events (`payout.*`, `payment.*`, `checkout_session.*`); the server re-reads the resource from Monime before changing any balance. See MONIME.md.
 - POST `/webhooks/funding` **public, HMAC** header `x-signature` = hex HMAC-SHA256 of the raw body with `WEBHOOK_SECRET`; body `{accountNumber, amount, reference, sender?}` -> credits the account once per `reference` (idempotent).
 
 Saved recipients: GET `/recipients` -> `{items:[{id,bank,accountNumber,accountName}]}`.

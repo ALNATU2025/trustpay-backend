@@ -18,7 +18,12 @@ const sandbox = {
   },
 };
 
-// LIVE: a card acquirer / payment gateway operating in Sierra Leone (hosted checkout + webhook).
-const live = notConfigured('cardAcquirer', 'a card acquirer / payment gateway', ['charge']);
+// LIVE: raw card details are never accepted by this API. Card (and bank / mobile money) top-ups go through
+// Monime's hosted checkout page: POST /payments/funding/checkout.
+const live = {
+  async charge() {
+    throw new ProviderError('Use "Add money online" to fund your wallet from a card.', { outcome: 'failed' });
+  },
+};
 
 module.exports = select({ sandbox, live });

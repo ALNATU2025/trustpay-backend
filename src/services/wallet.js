@@ -120,9 +120,13 @@ async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, 
 
   // From here on the customer has been charged. Any unexpected failure must leave the Txn
   // Pending and flagged for review. It must never throw, because a retry would charge again.
-  const flagForReview = async (why) => {
+  const flagForReview = async (why, providerRef) => {
     log.error('Post-debit problem', { reference: txn.reference, subtype, why });
-    await Txn.updateOne({ _id: txn._id }, { $set: { needsReview: true, failureReason: 'Awaiting confirmation.' } }).catch(() => {});
+    // providerRef lets the partner's webhook (or `npm run reconcile`) find and finish this payment later.
+    await Txn.updateOne(
+      { _id: txn._id },
+      { $set: { needsReview: true, failureReason: 'Awaiting confirmation.', ...(providerRef ? { providerRef } : {}) } },
+    ).catch(() => {});
     const pending = await Txn.findById(txn._id).lean().catch(() => null);
     return { txn: pending || { ...txn.toObject(), needsReview: true }, balanceMinor: after.balanceMinor };
   };
@@ -152,7 +156,7 @@ async function payDebit({ user, kind, subtype, code, amountMinor, feeMinor = 0, 
       throw E.upstream(`${message} Your money has been returned.`, err.code === 'PROVIDER_ERROR' ? 'PAYMENT_FAILED' : err.code);
     }
     // Unknown outcome: keep the debit, flag for review.
-    return flagForReview(err && err.message);
+    return flagForReview(err && err.message, err && err.providerRef);
   }
 
   try {
@@ -264,4 +268,44 @@ async function applyExternalCredit({ userId, kind, subtype, code, amountMinor, f
   return { txn: done, balanceMinor: credit.balanceMinor, duplicate: !credit.applied };
 }
 
-module.exports = { fullName, searchText, assertCanTransact, debitWallet, creditWallet, payDebit, payCredit, applyExternalCredit };
+/**
+ * Finishes a Pending debit once the partner reports the final result (webhook / reconcile).
+ * Safe to call repeatedly: a payment that is no longer Pending is left alone.
+ *   outcome 'success' -> Successful.   outcome 'failed' -> refund + reversal row, Failed.
+ */
+async function settleDebit(txnId, outcome, reason) {
+  const txn = await Txn.findById(txnId);
+  if (!txn || txn.direction !== 'debit' || txn.status !== 'Pending') return { changed: false };
+  if (outcome === 'success') {
+    const r = await Txn.updateOne({ _id: txn._id, status: 'Pending' }, { $set: { status: 'Successful', needsReview: false }, $unset: { failureReason: 1 } });
+    return { changed: r.modifiedCount > 0 };
+  }
+  const message = reason || 'The payment could not be completed.';
+  const refund = await creditWallet(txn.user, txn.totalMinor, `refund:${txn._id}`);
+  const r = await Txn.updateOne({ _id: txn._id, status: 'Pending' }, { $set: { status: 'Failed', failureReason: message, needsReview: false } });
+  await reverse(txn, refund.balanceMinor, message);
+  return { changed: r.modifiedCount > 0 };
+}
+
+/** Finishes a Pending credit (checkout top-up) once the money has arrived. Idempotent. */
+async function settleCredit(txnId) {
+  const txn = await Txn.findById(txnId);
+  if (!txn || txn.direction !== 'credit' || txn.status === 'Successful') return { changed: false };
+  const credit = await creditWallet(txn.user, txn.amountMinor, `credit:${txn._id}`);
+  const r = await Txn.updateOne(
+    { _id: txn._id, status: { $ne: 'Successful' } },
+    { $set: { status: 'Successful', balanceAfterMinor: credit.balanceMinor, needsReview: false }, $unset: { failureReason: 1 } },
+  );
+  return { changed: r.modifiedCount > 0 };
+}
+
+/** Marks a Pending credit as Failed (checkout cancelled / expired). Nothing to refund. */
+async function failCredit(txnId, reason) {
+  const r = await Txn.updateOne(
+    { _id: txnId, direction: 'credit', status: 'Pending' },
+    { $set: { status: 'Failed', failureReason: reason || 'The payment was not completed.', needsReview: false } },
+  );
+  return { changed: r.modifiedCount > 0 };
+}
+
+module.exports = { settleDebit, settleCredit, failCredit, fullName, searchText, assertCanTransact, debitWallet, creditWallet, payDebit, payCredit, applyExternalCredit };

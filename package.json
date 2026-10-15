@@ -12,6 +12,8 @@
     "dev": "node --watch src/server.js",
     "seed": "node src/scripts/seed.js",
     "settle": "node src/scripts/settle.js",
+    "reconcile": "node src/scripts/reconcile.js",
+    "monime:sync": "node src/scripts/monime-sync.js",
     "check": "node src/scripts/check.js",
     "load-test": "node src/scripts/load-test.js",
     "smoke": "node src/scripts/smoke.js",

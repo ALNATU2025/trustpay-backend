@@ -31,8 +31,33 @@ const sandbox = {
   },
 };
 
-// LIVE: needs merchant/disbursement agreements with Orange Money SL, Africell (Afrimoney) and
-// Qcell (Qmoney) - each exposes its own collection (request-to-pay) and disbursement API.
-const live = notConfigured('mobileMoney', 'Orange Money / Afrimoney / Qmoney merchant APIs', ['nameEnquiry', 'send', 'collect']);
+// LIVE: Monime. Name check = Provider KYC, send = Payout to a wallet. Money IN from a wallet is done through
+// hosted checkout (see providers/checkout.js and POST /payments/funding/checkout), not an approval code.
+const directory = require('./monime/directory');
+const kyc = require('./monime/kyc');
+const payouts = require('./monime/payouts');
+
+const msisdn = (number) => `232${number}`; // stored as 8 national digits
+
+const live = {
+  async nameEnquiry({ provider, number }) {
+    if (!/^\d{8}$/.test(number)) return null;
+    const p = await directory.resolve('momo', provider);
+    const name = await kyc.holderName(p.providerId, msisdn(number));
+    if (name === null) return null;
+    return { holderName: name || `Wallet ••${number.slice(-4)}`, unverified: name === undefined };
+  },
+  async send({ provider, number, amountMinor, reference }) {
+    const p = await directory.resolve('momo', provider);
+    return payouts.send({
+      amountMinor,
+      reference,
+      destination: { type: 'momo', providerId: p.providerId, phoneNumber: msisdn(number) },
+    });
+  },
+  async collect() {
+    throw new ProviderError('Use "Add money online" to fund your wallet from mobile money.', { outcome: 'failed' });
+  },
+};
 
 module.exports = select({ sandbox, live });

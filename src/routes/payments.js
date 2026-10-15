@@ -13,7 +13,7 @@ const { fromMinor, bpsOf } = require('../utils/money');
 const { ProviderError, NotConfiguredError } = require('../providers/errors');
 const { getConfig } = require('../services/catalog');
 const { verifyPin } = require('../services/security');
-const { payDebit, payCredit, creditWallet, assertCanTransact, searchText, fullName } = require('../services/wallet');
+const { payDebit, payCredit, creditWallet, assertCanTransact, searchText, fullName, settleCredit } = require('../services/wallet');
 const { idempotent } = require('../services/idempotency');
 const { present } = require('../services/presenter');
 
@@ -210,6 +210,50 @@ router.post(
         providers.cardAcquirer.charge({ amountMinor: b.amount + feeMinor, feeMinor, cardLast4: b.cardLast4, brand: b.brand, reference: txn.reference }),
     });
     return { body: pack(out) };
+  }),
+);
+
+/**
+ * Add money online: the customer pays on the provider's hosted page with a card, a bank account or
+ * mobile money. Live: returns `checkoutUrl` and the wallet is credited when the provider confirms
+ * (webhook). Sandbox: credited immediately, no URL.
+ */
+router.post(
+  '/funding/checkout',
+  validate(S.fundingCheckout),
+  handle('funding.checkout', async (req) => {
+    const b = req.body;
+    const user = req.user;
+    const txn = await createWithReference(Txn, CODES.funding, (reference) => ({
+      user: user._id,
+      reference,
+      kind: 'funding',
+      subtype: 'funding_checkout',
+      direction: 'credit',
+      amountMinor: b.amount,
+      feeMinor: 0,
+      totalMinor: b.amount,
+      status: 'Pending',
+      details: {},
+      ownerName: fullName(user),
+      ownerAccount: user.accountNumber,
+      search: searchText([reference, 'funding online checkout']),
+    }));
+    let session;
+    try {
+      session = await providers.checkout.create({ amountMinor: b.amount, reference: txn.reference, name: 'TrustPay top-up' });
+    } catch (err) {
+      await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: 'The payment page could not be opened.' } });
+      if (err instanceof NotConfiguredError || (err instanceof ProviderError && err.code === 'PROVIDER_NOT_CONFIGURED')) {
+        throw E.unavailable('This service is not available yet.', 'PROVIDER_NOT_CONFIGURED');
+      }
+      throw E.upstream('We could not open the payment page. Please try again.', 'PAYMENT_FAILED');
+    }
+    await Txn.updateOne({ _id: txn._id }, { $set: { providerRef: session.id } });
+    if (session.instant) await settleCredit(txn._id);
+    const fresh = await Txn.findById(txn._id).lean();
+    const me = await User.findById(user._id).select('balanceMinor');
+    return { body: pack({ txn: fresh, balanceMinor: me.balanceMinor }, { checkoutUrl: session.url || null }) };
   }),
 );
 

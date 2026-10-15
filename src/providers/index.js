@@ -11,4 +11,5 @@ module.exports = {
   airtime: require('./airtime'),
   cardIssuer: require('./cardIssuer'),
   cardAcquirer: require('./cardAcquirer'),
+  checkout: require('./checkout'),
 };

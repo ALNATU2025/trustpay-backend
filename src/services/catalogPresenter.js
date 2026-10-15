@@ -29,6 +29,8 @@ function presentCatalog(cfg) {
     terminal: cfg.terminal,
     topics: cfg.topics,
     support: cfg.support,
+    // 'checkout' = top-ups happen on the provider's hosted page (card, bank, mobile money); 'direct' = sandbox, instant.
+    features: { fundingMode: require('../config/env').providerMode === 'live' ? 'checkout' : 'direct' },
   };
 }
 

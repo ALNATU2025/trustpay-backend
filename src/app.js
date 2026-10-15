@@ -31,6 +31,19 @@ function createApp() {
   app.get('/', health);
   app.get('/api/health', health);
 
+  // Where Monime's hosted checkout sends the customer afterwards. Static text only; the wallet is
+  // credited by the webhook, never by this page.
+  app.get('/api/pay/return', (req, res) => {
+    const ok = req.query.status === 'success';
+    res.set('Cache-Control', 'no-store').type('html').send(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TrustPay</title>` +
+        `<style>body{font-family:system-ui,sans-serif;background:#f4f6fb;color:#0b1b3a;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;text-align:center}` +
+        `.c{background:#fff;border-radius:24px;padding:32px 24px;max-width:360px;box-shadow:0 8px 30px rgba(11,27,58,.08)}h1{font-size:22px;margin:0 0 8px}p{color:#5b6781;line-height:1.5;margin:0}</style></head>` +
+        `<body><div class="c"><h1>${ok ? 'Payment received' : 'Payment not completed'}</h1>` +
+        `<p>${ok ? 'Your TrustPay balance will update in a moment. You can close this page and return to the app.' : 'No money was taken. You can close this page and try again in the app.'}</p></div></body></html>`,
+    );
+  });
+
   app.use('/api', limits.global);
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');

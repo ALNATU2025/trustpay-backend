@@ -41,3 +41,8 @@ Render's free web service sleeps after 15 minutes idle and takes up to a minute 
 ## How money stays correct
 
 Every payment writes a Pending transaction first, debits the wallet with one atomic conditional update (a balance can never go below zero, even with parallel requests), calls the partner, then marks it Successful. If the partner clearly fails, the debit is refunded and a reversal row is written. If the answer is unknown the payment stays Pending and flagged for review. Credits (webhooks, refunds, settlements) carry unique keys, so a repeat can never credit twice. Money-moving requests accept an `Idempotency-Key`, so a retry after a dropped connection never charges twice. PINs and passwords are bcrypt-hashed; five wrong PINs lock payments for 30 minutes.
+
+
+## Live money with Monime
+
+Mobile money, bank and card are connected through Monime. Setup, environment variables, the webhook and testing steps are in [MONIME.md](MONIME.md).

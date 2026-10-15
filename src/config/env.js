@@ -54,6 +54,21 @@ const env = {
   webhookSecret,
   providerMode,
   otpDebug: bool(process.env.OTP_DEBUG, false),
+  // Monime (https://docs.monime.io): payouts to banks / mobile money and hosted checkout (card, bank, mobile money).
+  monime: {
+    baseUrl: str(process.env.MONIME_BASE_URL, 'https://api.monime.io').replace(/\/+$/, ''),
+    token: str(process.env.MONIME_ACCESS_TOKEN),
+    spaceId: str(process.env.MONIME_SPACE_ID),
+    version: str(process.env.MONIME_VERSION, 'caph.2025-08-23'),
+    country: str(process.env.MONIME_COUNTRY, 'SL'),
+    // Optional: settle payouts from a specific financial account (default: the Space's main account).
+    payoutAccountId: str(process.env.MONIME_PAYOUT_ACCOUNT_ID),
+    // HS256 secret you give Monime when you register the webhook (32-256 characters).
+    webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
+    timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 15000),
+  },
+  // Public URL of this API (used for checkout return pages), e.g. https://trustpay-backend-zkiv.onrender.com
+  publicUrl: str(process.env.PUBLIC_URL, str(process.env.RENDER_EXTERNAL_URL)).replace(/\/+$/, ''),
   kycManual: bool(process.env.KYC_MANUAL, false),
   corsOrigins: str(process.env.CORS_ORIGINS, '*'),
   trustProxy: int(process.env.TRUST_PROXY, 1),
@@ -79,6 +94,13 @@ env.assertValid = function assertValid() {
   if (!env.mongoUri) problems.push('MONGODB_URI is required.');
   if (!/^[0-9a-fA-F]{64}$/.test(env.cardKeyHex)) problems.push('CARD_ENCRYPTION_KEY must be 64 hex characters (32 bytes).');
   if (!Number.isFinite(env.maxAmountMinor) || env.maxAmountMinor <= 0) problems.push('MAX_AMOUNT_LE must be a positive number.');
+  if (env.providerMode === 'live') {
+    if (!env.monime.token) problems.push('MONIME_ACCESS_TOKEN is required when PROVIDER_MODE=live.');
+    if (!/^spc-/.test(env.monime.spaceId)) problems.push('MONIME_SPACE_ID (starts with "spc-") is required when PROVIDER_MODE=live.');
+    if (env.monime.webhookSecret && (env.monime.webhookSecret.length < 32 || env.monime.webhookSecret.length > 256)) {
+      problems.push('MONIME_WEBHOOK_SECRET must be 32-256 characters.');
+    }
+  }
   if (env.otpDebug && env.providerMode === 'live') problems.push('OTP_DEBUG must be false when PROVIDER_MODE=live.');
   if (isProd && env.providerMode === 'sandbox' && !bool(process.env.ALLOW_SANDBOX_IN_PRODUCTION, false)) {
     problems.push('PROVIDER_MODE=sandbox moves FAKE money and sends no SMS. For a public test deployment set ALLOW_SANDBOX_IN_PRODUCTION=true; for real users set PROVIDER_MODE=live.');

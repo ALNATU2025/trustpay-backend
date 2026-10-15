@@ -10,6 +10,7 @@ const { verifyHmac } = require('../utils/crypto');
 const { CODES, isDuplicateKey } = require('../utils/references');
 const { applyExternalCredit } = require('../services/wallet');
 const log = require('../utils/log');
+const monime = require('../services/monime');
 
 const router = express.Router();
 
@@ -81,6 +82,25 @@ router.post(
     await Terminal.updateOne({ _id: terminal._id }, { $set: set });
     if (!duplicate) log.info('POS payment recorded', { terminal: terminal.code });
     res.json({ ok: true, duplicate });
+  }),
+);
+
+/**
+ * Monime events (payout.completed / payout.failed / payment.completed / checkout_session.*).
+ * Register this URL in the Monime dashboard or via POST /v1/webhooks:
+ *   https://<service>.onrender.com/api/webhooks/monime
+ * The handler re-reads the resource from Monime before touching any money (see services/monime.js),
+ * so the body alone can never credit or refund anyone.
+ */
+router.post(
+  '/monime',
+  asyncHandler(async (req, res) => {
+    if (env.providerMode !== 'live') return res.json({ ok: true, ignored: 'sandbox' });
+    const sig = monime.checkSignature(req);
+    if (sig === 'bad') throw E.unauthorized('Invalid signature.', 'BAD_SIGNATURE');
+    if (sig === 'none' && env.monime.webhookSecret) log.warn('Monime webhook had no recognised signature header; verified by re-reading from Monime instead.');
+    const result = await monime.processEvent(req.body);
+    res.json({ ok: true, handled: !!result.handled });
   }),
 );
 

@@ -77,6 +77,13 @@ const KINDS = {
     eyebrow: 'TRANSACTIONS · FUNDING RECEIPT',
     rows: (d) => [...(d.sender ? [['Sender', d.sender]] : []), ['Method', 'Bank transfer']],
   },
+  funding_checkout: {
+    label: 'Online payment',
+    title: () => 'Account funding',
+    banner: () => 'Added online',
+    eyebrow: 'TRANSACTIONS · FUNDING RECEIPT',
+    rows: () => [['Method', 'Card, bank or mobile money']],
+  },
   funding_card: {
     label: 'Card',
     title: () => 'Account funding',

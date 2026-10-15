@@ -30,9 +30,28 @@ const sandbox = {
   },
 };
 
-// LIVE: connect to your bank-transfer partner. In Sierra Leone this means an agreement with a
-// commercial bank or switch that exposes name-enquiry and funds-transfer APIs (e.g. via the
-// Bank of Sierra Leone's RTGS/ACH access or a partner bank's corporate API).
-const live = notConfigured('bank', 'a Sierra Leone bank / switch name-enquiry + transfer API', ['nameEnquiry', 'transfer']);
+// LIVE: Monime (https://docs.monime.io). Name check = Provider KYC, transfer = Payout to a bank account.
+const directory = require('./monime/directory');
+const kyc = require('./monime/kyc');
+const payouts = require('./monime/payouts');
+
+const live = {
+  async nameEnquiry({ bank, accountNumber }) {
+    if (!/^\d{6,20}$/.test(accountNumber)) return null;
+    const provider = await directory.resolve('bank', bank);
+    const name = await kyc.holderName(provider.providerId, accountNumber);
+    if (name === null) return null;
+    // undefined = this bank does not offer name checks: let the customer confirm the number themselves.
+    return { accountName: name || `Account ••${accountNumber.slice(-4)}`, unverified: name === undefined };
+  },
+  async transfer({ bank, accountNumber, amountMinor, reference }) {
+    const provider = await directory.resolve('bank', bank);
+    return payouts.send({
+      amountMinor,
+      reference,
+      destination: { type: 'bank', providerId: provider.providerId, accountNumber },
+    });
+  },
+};
 
 module.exports = select({ sandbox, live });

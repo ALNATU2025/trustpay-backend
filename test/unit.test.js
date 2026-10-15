@@ -122,3 +122,22 @@ test('presenter: credits are positive and carry the electricity token', () => {
   assert.equal(c.amount, 5000);
   assert.equal(c.title, 'Account funding');
 });
+
+test('monime: webhook signature accepts HMAC (hex/base64) and HS256 JWT, rejects tampering', () => {
+  const crypto = require('crypto');
+  const env = require('../src/config/env');
+  env.monime.webhookSecret = 's'.repeat(40);
+  const { checkSignature } = require('../src/services/monime');
+  const raw = Buffer.from('{"event":{"name":"payout.completed"}}');
+  const req = (headers) => ({ rawBody: raw, get: (h) => headers[h.toLowerCase()] });
+  const mac = crypto.createHmac('sha256', env.monime.webhookSecret).update(raw);
+  const hex = mac.digest('hex');
+  assert.equal(checkSignature(req({ 'monime-signature': hex })), 'ok');
+  assert.equal(checkSignature(req({ 'x-signature': `sha256=${hex}` })), 'ok');
+  assert.equal(checkSignature(req({ 'monime-signature': 'deadbeef' })), 'bad');
+  const jwt = require('jsonwebtoken').sign({ a: 1 }, env.monime.webhookSecret, { algorithm: 'HS256', expiresIn: 60 });
+  assert.equal(checkSignature(req({ 'monime-signature': jwt })), 'ok');
+  assert.equal(checkSignature(req({})), 'none');
+  env.monime.webhookSecret = '';
+  assert.equal(checkSignature(req({ 'monime-signature': 'x' })), 'none');
+});
