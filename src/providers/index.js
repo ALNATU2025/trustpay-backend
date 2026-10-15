@@ -12,4 +12,5 @@ module.exports = {
   cardIssuer: require('./cardIssuer'),
   cardAcquirer: require('./cardAcquirer'),
   checkout: require('./checkout'),
+  paymentCode: require('./paymentCode'),
 };

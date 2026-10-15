@@ -93,3 +93,10 @@ or schedule it every 5 minutes as a Render Cron Job (`render.yaml` has one ready
 ## Super admin
 
 `SUPER_ADMIN_IDS` (comma-separated Mongo `_id`s, default `6ad0e47586522f7476ca3775`) always get the `admin` role on their next request, which opens every admin and support feature. The id must belong to an existing user; register that account first. Or run `npm run make-admin -- <userId|phone> admin`.
+
+## Where top-up money goes
+
+- **Mobile money** top-ups use a Payment Code (`POST /v1/payment-codes`, one-time, 15 minutes, locked to the customer's wallet number and provider). Collected funds are settled into `MONIME_FUNDING_ACCOUNT_ID` if you set it, otherwise into the space's **main financial account** (Monime's documented default).
+- **Card** top-ups use a hosted checkout session and settle into your space's default account (the docs do not offer a choice there).
+- TrustPay's wallet balance is a ledger in MongoDB. The real money sits in your Monime account, and bank / mobile money payouts are paid out of it. Keep it funded.
+- Confirm in the Monime dashboard (Financial accounts) which account receives the money after your first live top-up.

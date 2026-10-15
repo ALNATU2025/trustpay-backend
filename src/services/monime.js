@@ -74,12 +74,23 @@ async function handleSession(id) {
   return { handled: true, changed: false };
 }
 
+async function handleCode(id) {
+  const txn = await Txn.findOne({ providerRef: id, subtype: 'funding_momo_code' });
+  if (!txn) return { handled: false };
+  const code = await client.read(`/v1/payment-codes/${encodeURIComponent(id)}`);
+  if (code.status === 'completed') return { handled: true, ...(await settleCredit(txn._id)) };
+  if (code.status === 'expired' || code.status === 'cancelled') {
+    return { handled: true, ...(await failCredit(txn._id, 'The payment code expired before it was used.')) };
+  }
+  return { handled: true, changed: false };
+}
+
 async function handlePayment(id) {
   const payment = await client.read(`/v1/payments/${encodeURIComponent(id)}`);
   if (payment.status !== 'completed') return { handled: true, changed: false };
   const owner = payment.ownershipGraph && payment.ownershipGraph.owner;
-  if (!owner || owner.type !== 'checkout_session') return { handled: false };
-  const txn = await Txn.findOne({ providerRef: owner.id, subtype: 'funding_checkout' });
+  if (!owner || !['checkout_session', 'payment_code'].includes(owner.type)) return { handled: false };
+  const txn = await Txn.findOne({ providerRef: owner.id, subtype: owner.type === 'payment_code' ? 'funding_momo_code' : 'funding_checkout' });
   if (!txn) return { handled: false };
   const paid = payment.amount;
   if (!paid || paid.currency !== 'SLE' || paid.value < txn.amountMinor) {
@@ -97,6 +108,7 @@ async function processEvent(body) {
   if (!name || !objId || typeof objId !== 'string') return { handled: false };
   if (name.startsWith('payout.')) return handlePayout(objId);
   if (name.startsWith('checkout_session.')) return handleSession(objId);
+  if (name.startsWith('payment_code.')) return handleCode(objId);
   if (name.startsWith('payment.')) return handlePayment(objId);
   return { handled: false };
 }
@@ -117,6 +129,7 @@ async function reconcilePending({ minAgeMs = 60 * 1000, limit = 200 } = {}) {
     try {
       let r = { changed: false };
       if (t.subtype === 'funding_checkout') r = await handleSession(t.providerRef);
+      else if (t.subtype === 'funding_momo_code') r = await handleCode(t.providerRef);
       else if (t.direction === 'debit') r = await handlePayout(t.providerRef);
       if (r.changed) out.settled += 1;
     } catch (err) {

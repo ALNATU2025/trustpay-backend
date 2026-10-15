@@ -1,7 +1,7 @@
 'use strict';
 /**
- * Hosted checkout for wallet top-ups: the customer pays on Monime's page with a card, a bank
- * account or mobile money. TrustPay never sees card numbers.
+ * Hosted checkout for card top-ups: the customer pays on Monime's page with a card.
+ * (Mobile money top-ups use a USSD payment code, see providers/paymentCode.js.) TrustPay never sees card numbers.
  *   create({ amountMinor, reference, name }) -> { id, url, instant }
  *   status(id)                              -> { paid: boolean, expired: boolean }
  *
@@ -37,7 +37,7 @@ const live = {
         successUrl: `${base}/api/pay/return?status=success&ref=${encodeURIComponent(reference)}`,
         cancelUrl: `${base}/api/pay/return?status=cancelled&ref=${encodeURIComponent(reference)}`,
         lineItems: [{ type: 'custom', name: 'Wallet top-up', price: { currency: 'SLE', value: amountMinor }, quantity: 1, reference: 'topup' }],
-        paymentOptions: { card: { disable: false }, bank: { disable: true }, momo: { disable: false }, wallet: { disable: true } },
+        paymentOptions: { card: { disable: false }, bank: { disable: true }, momo: { disable: true }, wallet: { disable: true } },
         metadata: { trustpayReference: reference },
       },
       `tp-${reference}`,

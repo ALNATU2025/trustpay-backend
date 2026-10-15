@@ -257,6 +257,52 @@ router.post(
   }),
 );
 
+/**
+ * Add money from mobile money with a USSD payment code. Live: returns `ussdCode` to dial and the wallet is
+ * credited when Monime confirms the payment. Sandbox: credited immediately, no code.
+ */
+router.post(
+  '/funding/momo-code',
+  validate(S.fundingMomoCode),
+  handle('funding.momoCode', async (req) => {
+    const b = req.body;
+    const user = req.user;
+    const cfg = await getConfig();
+    pickProvider(cfg.mobileMoney, b.provider, 'wallet provider');
+    const txn = await createWithReference(Txn, CODES.funding, (reference) => ({
+      user: user._id,
+      reference,
+      kind: 'funding',
+      subtype: 'funding_momo_code',
+      direction: 'credit',
+      amountMinor: b.amount,
+      feeMinor: 0,
+      totalMinor: b.amount,
+      status: 'Pending',
+      details: { provider: b.provider, number: b.number },
+      ownerName: fullName(user),
+      ownerAccount: user.accountNumber,
+      search: searchText([reference, 'funding mobile money', b.provider]),
+    }));
+    let code;
+    try {
+      code = await providers.paymentCode.create({ provider: b.provider, number: b.number, amountMinor: b.amount, reference: txn.reference, name: fullName(user) });
+    } catch (err) {
+      const reason = err instanceof ProviderError && err.outcome === 'failed' && err.message ? err.message : 'The payment code could not be created.';
+      await Txn.updateOne({ _id: txn._id }, { $set: { status: 'Failed', failureReason: reason } });
+      if (err instanceof NotConfiguredError || (err instanceof ProviderError && err.code === 'PROVIDER_NOT_CONFIGURED')) {
+        throw E.unavailable('This service is not available yet.', 'PROVIDER_NOT_CONFIGURED');
+      }
+      throw E.upstream(reason, 'PAYMENT_FAILED');
+    }
+    await Txn.updateOne({ _id: txn._id }, { $set: { providerRef: code.id, 'details.ussdCode': code.ussdCode || null } });
+    if (code.instant) await settleCredit(txn._id);
+    const fresh = await Txn.findById(txn._id).lean();
+    const me = await User.findById(user._id).select('balanceMinor');
+    return { body: pack({ txn: fresh, balanceMinor: me.balanceMinor }, { ussdCode: code.ussdCode || null, expiresAt: code.expiresAt || null }) };
+  }),
+);
+
 /* ------------------------------------------------------------------- bills */
 
 router.post(

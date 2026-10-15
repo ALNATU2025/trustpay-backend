@@ -65,6 +65,8 @@ const env = {
     country: str(process.env.MONIME_COUNTRY, 'SL'),
     // Optional: settle payouts from a specific financial account (default: the Space's main account).
     payoutAccountId: str(process.env.MONIME_PAYOUT_ACCOUNT_ID),
+    // Financial account that receives top-ups (payment codes). Empty = the space's main account.
+    fundingAccountId: str(process.env.MONIME_FUNDING_ACCOUNT_ID),
     // HS256 secret you give Monime when you register the webhook (32-256 characters).
     webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
     timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 15000),

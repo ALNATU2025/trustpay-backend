@@ -163,6 +163,7 @@ const S = {
   mmAdd: z.object({ provider: text('Wallet provider'), number: phone('Wallet number'), amount: amount(), code: otpCode }),
   fundingCard: z.object({ amount: amount(), cardLast4: digits('Card last 4', /^\d{4}$/, 'Card last 4 must be 4 digits.'), brand: text('Card brand', { max: 30 }) }),
   fundingCheckout: z.object({ amount: amount() }),
+  fundingMomoCode: z.object({ provider: text('Wallet provider'), number: phone('Wallet number'), amount: amount() }),
   bills: z.object({
     category: z.enum(['electricity', 'tv', 'internet'], { errorMap: () => ({ message: 'Category must be electricity, tv or internet.' }) }),
     provider: text('Provider'),

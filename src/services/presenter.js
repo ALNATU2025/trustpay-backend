@@ -78,11 +78,18 @@ const KINDS = {
     rows: (d) => [...(d.sender ? [['Sender', d.sender]] : []), ['Method', 'Bank transfer']],
   },
   funding_checkout: {
-    label: 'Online payment',
+    label: 'Card',
     title: () => 'Account funding',
-    banner: () => 'Added online',
+    banner: () => 'Added by card',
     eyebrow: 'TRANSACTIONS · FUNDING RECEIPT',
-    rows: () => [['Method', 'Card, bank or mobile money']],
+    rows: () => [['Method', 'Card']],
+  },
+  funding_momo_code: {
+    label: 'Mobile money',
+    title: (d) => `From ${d.provider}`,
+    banner: (d) => `Added from ${d.provider}`,
+    eyebrow: 'TRANSACTIONS · FUNDING RECEIPT',
+    rows: (d) => [['Wallet', d.provider], ['Number', phoneOf(d.number)]],
   },
   funding_card: {
     label: 'Card',
