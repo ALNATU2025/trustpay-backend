@@ -519,7 +519,7 @@ router.get(
   }),
 );
 
-router.put(
+router.patch(
   '/tiers',
   adminOnly,
   validate(S.tierLimits),

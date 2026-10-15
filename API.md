@@ -82,7 +82,7 @@ Payment responses: `{ transaction: Txn, balance: number }` (balance = new availa
 - GET `/me/tier` -> `{ tier, limits:{daily,balance}, usedToday, nextTier, all, pendingRequest, lastRejection }`
 - POST `/me/documents` `{kind: "address_proof"|"business_document", mime: image/jpeg|image/png|application/pdf, data: base64 (3 MB max)}` -> 201 `{ document:{id} }`
 - POST `/me/tier-requests` `{tier, documentId, address? (tier 2), legalName?, businessNumber? (tier 3)}` -> 201. Shows up in Admin > Approvals as `tier_<id>` (with `documentId`).
-- Admin: GET `/admin/documents/:id` -> `{mime, data(base64)}`; GET `/admin/tiers` -> `{limits, counts}`; PUT `/admin/tiers` `{"Tier 1 · Basic": {daily, balance}}` (Leones, `null` = unlimited); decision on `tier_<id>` approves/rejects; PATCH `/admin/users/:id {tier}` sets a tier directly.
+- Admin: GET `/admin/documents/:id` -> `{mime, data(base64)}`; GET `/admin/tiers` -> `{limits, counts}`; PATCH `/admin/tiers` `{"Tier 1 · Basic": {daily, balance}}` (Leones, `null` = unlimited); decision on `tier_<id>` approves/rejects; PATCH `/admin/users/:id {tier}` sets a tier directly.
 - **Duplicate check**: the same payment (route, amount, target) within 2 minutes -> 409 `DUPLICATE_SUSPECTED`; the app asks and retries with header `X-Confirm-Duplicate: 1`. Top-ups are exempt.
 - POST `/webhooks/monime` **public** Monime events (`payout.*`, `payment.*`, `checkout_session.*`); the server re-reads the resource from Monime before changing any balance. See MONIME.md.
 - POST `/webhooks/funding` **public, HMAC** header `x-signature` = hex HMAC-SHA256 of the raw body with `WEBHOOK_SECRET`; body `{accountNumber, amount, reference, sender?}` -> credits the account once per `reference` (idempotent).
