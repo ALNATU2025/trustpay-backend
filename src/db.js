@@ -9,16 +9,32 @@ mongoose.set('strictQuery', true);
 async function connect(uri = env.mongoUri) {
   mongoose.connection.on('error', (e) => log.error('MongoDB error', { message: e.message }));
   mongoose.connection.on('disconnected', () => log.warn('MongoDB disconnected'));
-  await mongoose.connect(uri, {
-    autoIndex: env.autoIndex,
-    serverSelectionTimeoutMS: 15000,
-    maxPoolSize: 20,
+  // Never hang silently: a stuck DNS lookup or index build must show up in the logs and fail the deploy.
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('MongoDB did not answer within 45 seconds. Check MONGODB_URI, the Atlas user password and Atlas Network Access.')), 45000);
   });
-  if (env.autoIndex) {
-    // Make sure unique indexes exist before we accept traffic (they protect money paths).
-    await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
+  const work = (async () => {
+    log.info('Connecting to MongoDB');
+    await mongoose.connect(uri, {
+      autoIndex: env.autoIndex,
+      serverSelectionTimeoutMS: 15000,
+      connectTimeoutMS: 15000,
+      maxPoolSize: 20,
+    });
+    log.info('MongoDB connection open');
+    if (env.autoIndex) {
+      // Make sure unique indexes exist before we accept traffic (they protect money paths).
+      log.info('Checking indexes');
+      await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
+    }
+    return mongoose.connection;
+  })();
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
   }
-  return mongoose.connection;
 }
 
 const disconnect = () => mongoose.disconnect();
