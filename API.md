@@ -149,3 +149,4 @@ Card: `{ id, type: "virtual"|"physical", last4, expiry, holder, balance, frozen,
 
 ## Seeding
 `npm run seed` upserts the `Config` document (banks, providers, plans, packages, fees, support details) and, if `ADMIN_PHONE`/`ADMIN_PASSWORD`/`ADMIN_EMAIL` are set, creates the first admin user. Seeding never creates fake customers or transactions.
+- POST `/auth/phone/change` (auth, phone not yet verified) `{phone}` -> `{ user }` and sends a new code to the new number. 409 PHONE_TAKEN if another account has it.

@@ -106,6 +106,7 @@ const S = {
     password,
   }),
   otpVerify: z.object({ code: otpCode }),
+  phoneChange: z.object({ phone: phone() }),
   identity: z.object({
     legalName: text('Legal name', { min: 2, max: 120 }),
     dob: z

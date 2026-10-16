@@ -134,6 +134,31 @@ router.post(
   }),
 );
 
+/** Wrong number at sign-up? Lets a signed-in, not-yet-verified user fix it and get a fresh code. */
+router.post(
+  '/phone/change',
+  requireAuth,
+  limits.otp,
+  validate(S.phoneChange),
+  asyncHandler(async (req, res) => {
+    const user = req.user;
+    if (user.phoneVerified) throw E.conflict('Your phone number is already verified. Contact support to change it.', 'ALREADY_VERIFIED');
+    const phone = req.body.phone;
+    if (phone !== user.phone) {
+      try {
+        await User.updateOne({ _id: user._id }, { $set: { phone } });
+      } catch (err) {
+        if (isDuplicateKey(err, 'phone')) throw E.conflict('An account with this phone number already exists. Try logging in.', 'PHONE_TAKEN');
+        throw err;
+      }
+      user.phone = phone;
+      await Otp.deleteMany({ user: user._id, purpose: 'verify_phone' }); // codes sent to the old number are void
+    }
+    const code = await sec.issueOtp(user, 'verify_phone');
+    res.json({ user: presentUser(user), message: 'We sent a code to your new number.', resendIn: 30, ...devEcho(code) });
+  }),
+);
+
 router.post(
   '/otp/verify',
   requireAuth,
