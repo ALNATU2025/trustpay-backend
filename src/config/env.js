@@ -73,6 +73,19 @@ const env = {
     webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
     timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 10000),
   },
+  // SMS gateway for OTP codes (live mode). SMS_PROVIDER = twilio | africastalking | infobip
+  sms: {
+    provider: str(process.env.SMS_PROVIDER).toLowerCase(),
+    timeoutMs: int(process.env.SMS_TIMEOUT_MS, 10000),
+    twilio: {
+      accountSid: str(process.env.TWILIO_ACCOUNT_SID),
+      authToken: str(process.env.TWILIO_AUTH_TOKEN),
+      from: str(process.env.TWILIO_FROM),
+      messagingServiceSid: str(process.env.TWILIO_MESSAGING_SERVICE_SID),
+    },
+    at: { username: str(process.env.AT_USERNAME), apiKey: str(process.env.AT_API_KEY), from: str(process.env.AT_SENDER_ID) },
+    infobip: { baseUrl: str(process.env.INFOBIP_BASE_URL), apiKey: str(process.env.INFOBIP_API_KEY), from: str(process.env.INFOBIP_SENDER) },
+  },
   // Public URL of this API (used for checkout return pages), e.g. https://trustpay-backend-zkiv.onrender.com
   publicUrl: str(process.env.PUBLIC_URL, str(process.env.RENDER_EXTERNAL_URL)).replace(/\/+$/, ''),
   kycManual: bool(process.env.KYC_MANUAL, true),
@@ -106,6 +119,13 @@ env.assertValid = function assertValid() {
     if (env.monime.webhookSecret && (env.monime.webhookSecret.length < 32 || env.monime.webhookSecret.length > 256)) {
       problems.push('MONIME_WEBHOOK_SECRET must be 32-256 characters.');
     }
+  }
+  if (env.providerMode === 'live') {
+    const q = env.sms;
+    if (!['twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
+    else if (q.provider === 'twilio' && !(q.twilio.accountSid && q.twilio.authToken && (q.twilio.from || q.twilio.messagingServiceSid))) problems.push('Twilio needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID).');
+    else if (q.provider === 'africastalking' && !(q.at.username && q.at.apiKey)) problems.push("Africa's Talking needs AT_USERNAME and AT_API_KEY.");
+    else if (q.provider === 'infobip' && !(q.infobip.baseUrl && q.infobip.apiKey)) problems.push('Infobip needs INFOBIP_BASE_URL and INFOBIP_API_KEY.');
   }
   if (env.otpDebug && env.providerMode === 'live') problems.push('OTP_DEBUG must be false when PROVIDER_MODE=live.');
   if (isProd && env.providerMode === 'sandbox' && !bool(process.env.ALLOW_SANDBOX_IN_PRODUCTION, false)) {
