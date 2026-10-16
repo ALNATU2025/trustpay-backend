@@ -15,6 +15,7 @@ const sec = require('../services/security');
 const { presentUser } = require('../services/presenter');
 
 const notify = require('../services/notify');
+const audit = require('../services/audit');
 const router = express.Router();
 
 const LOGIN_MAX_FAILS = 5;
@@ -124,6 +125,7 @@ router.post(
       if (user.onboardingStep === 'phone') user.onboardingStep = 'identity';
       await user.save();
     }
+    audit.loginSeen(req, user);
     res.json({ token: sec.signSession(user), user: presentUser(user) });
   }),
 );

@@ -131,6 +131,29 @@ const S = {
     address: text('Address', { min: 5, max: 240 }),
   }),
   setPin: z.object({ pin }),
+  agentLookup: z.object({ code: digits('Agent code', /^\d{6}$/, 'Agent code is 6 digits.'), amount: amount().optional() }),
+  agentCustomer: z
+    .object({ accountNumber: accountNumber10.optional(), phone: phone().optional() })
+    .refine((v) => v.accountNumber || v.phone, { message: 'Provide an account number or phone number.' }),
+  agentCashOut: z.object({ code: digits('Agent code', /^\d{6}$/, 'Agent code is 6 digits.'), amount: amount(), pin }),
+  agentCashIn: z
+    .object({ accountNumber: accountNumber10.optional(), phone: phone().optional(), amount: amount(), pin })
+    .refine((v) => v.accountNumber || v.phone, { message: 'Provide an account number or phone number.' }),
+  agentFees: z.object({
+    cashOutPercent: z.number().min(0).max(10).optional(),
+    minFee: z.number().min(0).max(1000).optional(),
+    agentSharePercent: z.number().min(0).max(100).optional(),
+  }),
+  agentSwitch: z.object({ enabled: z.boolean() }),
+  statementQuery: z.object({ from: isoDate('From'), to: isoDate('To'), format: z.enum(['json', 'csv']).default('json') }),
+  reportQuery: z.object({ from: isoDate('From'), to: isoDate('To') }),
+  requestCreate: z
+    .object({ amount: amount(), note, accountNumber: accountNumber10.optional(), phone: phone().optional() })
+    .refine((v) => !(v.accountNumber && v.phone), { message: 'Use an account number or a phone number, not both.' }),
+  requestList: z.object({ box: z.enum(['incoming', 'outgoing']).default('incoming') }),
+  requestPay: z.object({ pin }),
+  pinReset: z.object({ password: z.string(req('Password')).min(1).max(200), newPin: pin }),
+  passwordOnly: z.object({ password: z.string(req('Password')).min(1).max(200) }),
   login: z.object({ identifier: text('Email or phone number', { max: 254 }), password: z.string(req('Password')).min(1, 'Password is required.').max(200) }),
   forgot: z.object({ identifier: text('Email or phone number', { max: 254 }) }),
   forgotVerify: z.object({ identifier: text('Email or phone number', { max: 254 }), code: otpCode }),

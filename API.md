@@ -150,3 +150,11 @@ Card: `{ id, type: "virtual"|"physical", last4, expiry, holder, balance, frozen,
 ## Seeding
 `npm run seed` upserts the `Config` document (banks, providers, plans, packages, fees, support details) and, if `ADMIN_PHONE`/`ADMIN_PASSWORD`/`ADMIN_EMAIL` are set, creates the first admin user. Seeding never creates fake customers or transactions.
 - POST `/auth/phone/change` (auth, phone not yet verified) `{phone}` -> `{ user }` and sends a new code to the new number. 409 PHONE_TAKEN if another account has it.
+
+## Receipts, statements, security, requests, agents, reports
+
+- GET `/statement?from&to&format=json|csv` -> opening/closing balance, totals, entries (receipts are built in the app from each transaction's `receipt`).
+- GET `/me/security` -> `{hasPin, pinLockedUntil, lastLoginAt, events[]}`; POST `/me/pin/reset` `{password,newPin}`; POST `/me/sessions/revoke-all` `{password}` -> `{token}`. App sends `X-Device-Id` so a new device raises a "New sign-in" notification.
+- POST `/requests` `{amount, note?, accountNumber|phone?}` (no target = open payment link); GET `/requests?box=incoming|outgoing`; GET `/requests/code/:code`; POST `/requests/:id/pay` `{pin}`; POST `/requests/:id/decline|cancel`. Public page: GET `/api/pay/request/:code`.
+- Agents: GET `/agents/me`, `/agents/lookup?code&amount`, `/agents/fees`, `/agents/customer?phone|accountNumber`; POST `/agents/cash-out` `{code,amount,pin}`, `/agents/cash-in` `{phone|accountNumber,amount,pin}`. Admin: GET `/admin/agents`, POST `/admin/users/:id/agent` `{enabled}`, PATCH `/admin/agent-fees` `{cashOutPercent,minFee,agentSharePercent}`.
+- Admin reports: GET `/admin/reports/summary?from&to`, GET `/admin/reports/export?from&to` -> `{filename, csv}`.

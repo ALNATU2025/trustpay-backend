@@ -21,5 +21,7 @@ const models = {
   Ticket: require('./Ticket'),
   Message: require('./Message'),
   Approval: require('./Approval'),
+  MoneyRequest: require('./MoneyRequest'),
+  SecurityEvent: require('./SecurityEvent'),
 };
 module.exports = models;

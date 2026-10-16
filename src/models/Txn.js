@@ -8,7 +8,7 @@ const txnSchema = new mongoose.Schema(
     kind: {
       type: String,
       required: true,
-      enum: ['transfer', 'funding', 'bill', 'airtime', 'data', 'tv', 'internet', 'card', 'pos', 'mobile_money'],
+      enum: ['transfer', 'funding', 'bill', 'airtime', 'data', 'tv', 'internet', 'card', 'pos', 'mobile_money', 'agent'],
     },
     // Drives title/meta/receipt rendering (see services/presenter.js).
     subtype: { type: String, required: true },

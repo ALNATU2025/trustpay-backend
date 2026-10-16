@@ -1,4 +1,5 @@
 'use strict';
+const audit = require('../services/audit');
 const express = require('express');
 const { User, Approval, Document, TierRequest } = require('../models');
 const tiers = require('../services/tiers');
@@ -58,6 +59,7 @@ router.post(
     user.passwordHash = await hashSecret(req.body.newPassword);
     user.tokenVersion = (user.tokenVersion || 0) + 1;
     await user.save();
+    audit.record(req, user._id, 'password_changed');
     // The caller's old token is now void; hand back a fresh one so this device stays signed in.
     res.json({ message: 'Your password has been updated.', token: sec.signSession(user) });
   }),
@@ -74,6 +76,7 @@ router.post(
       throw E.validation('Choose a PIN that is not repeated or in sequence.');
     }
     await User.updateOne({ _id: req.user._id }, { $set: { pinHash: await hashSecret(newPin) } });
+    audit.record(req, req.user._id, 'pin_changed');
     res.json({ message: 'Your PIN has been changed.' });
   }),
 );

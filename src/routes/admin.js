@@ -151,6 +151,8 @@ const adminUserDetail = (u) => ({
   onboardingStep: u.onboardingStep,
   accountNumber: u.accountNumber || '',
   merchantCode: u.merchantCode || '',
+  isAgent: !!u.isAgent,
+  agentCode: u.agentCode || '',
   settlementAccount: u.settlementAccount && u.settlementAccount.accountNumber ? `${u.settlementAccount.bank} •• ${String(u.settlementAccount.accountNumber).slice(-4)} (${u.settlementTo === 'bank' ? 'pays to bank' : 'stays in wallet'})` : '',
   lastLoginAt: iso(u.lastLoginAt),
   createdAt: iso(u.createdAt),

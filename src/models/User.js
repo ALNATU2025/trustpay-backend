@@ -24,6 +24,10 @@ const userSchema = new mongoose.Schema(
       accountNumber: String,
       accountName: String,
     },
+    // Cash-in / cash-out agent. The agent's wallet balance is their float.
+    isAgent: { type: Boolean, default: false },
+    agentCode: { type: String },
+    knownDevices: { type: [String], select: false, default: undefined },
     settlementTo: { type: String, enum: ['wallet', 'bank'], default: 'wallet' },
     address: { type: String, default: '', trim: true, maxlength: 240 },
 
@@ -68,6 +72,7 @@ const userSchema = new mongoose.Schema(
 );
 
 userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ agentCode: 1 }, { unique: true, partialFilterExpression: { agentCode: { $type: 'string' } } });
 userSchema.index({ phone: 1 }, { unique: true });
 userSchema.index({ accountNumber: 1 }, { unique: true });
 userSchema.index({ merchantCode: 1 }, { unique: true, partialFilterExpression: { merchantCode: { $type: 'string' } } });

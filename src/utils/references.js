@@ -17,6 +17,8 @@ const CODES = {
   support: 'SUP',
   settlement: 'SET',
   posCharge: 'PCH',
+  request: 'REQ',
+  agent: 'AGT',
 };
 
 /** `TP-TRF-131026-4821` (code, DDMMYY, 4 random digits). */
