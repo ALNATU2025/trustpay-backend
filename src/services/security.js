@@ -89,6 +89,9 @@ async function issueOtp(user, purpose) {
     await providers.sms.send({
       to: user.phone,
       purpose,
+      code,
+      firstName: user.firstName,
+      ttlMinutes: Math.round(OTP_TTL_MS / 60000),
       message: `Your TrustPay code is ${code}. It expires in 10 minutes. Never share it with anyone.`,
     });
   } catch (err) {

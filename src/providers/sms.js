@@ -65,6 +65,28 @@ const fail = (name, r) => {
 };
 
 const gateways = {
+  // https://sendchamp.readme.io/reference/whatsapp-template-message-api
+  // OTP goes to the customer's WhatsApp through an approved template whose body variables are
+  //   {{1}} = first name, {{2}} = the code, {{3}} = validity (e.g. "10 minutes").
+  async sendchamp({ to, code, firstName, ttlMinutes, message }) {
+    const c = env.sms.sendchamp;
+    if (!code) throw new ProviderError('Sendchamp WhatsApp is only used for one-time codes.', { code: 'SMS_NOT_CONFIGURED' });
+    const r = await post(`${c.baseUrl}/api/v1/whatsapp/message/send`, {
+      headers: { Authorization: `Bearer ${c.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: {
+        sender: c.sender,
+        recipient: `232${to}`,
+        template_code: c.templateCode,
+        type: 'template',
+        custom_data: { body: { 1: String(firstName || 'there'), 2: String(code), 3: `${ttlMinutes || 10} minutes` } },
+      },
+    });
+    const ok = r.ok && r.json && (r.json.status === 'success' || r.json.code === 200);
+    if (!ok) fail('sendchamp', r);
+    const ref = r.json.data && r.json.data.provider_reference;
+    return { providerRef: ref || `sendchamp-${Date.now()}` };
+  },
+
   // https://www.vtpass.com (Messaging API). GET with X-Token / X-Secret headers; recipient as 232XXXXXXXX.
   async vtpass({ to, message }) {
     const c = env.sms.vtpass;

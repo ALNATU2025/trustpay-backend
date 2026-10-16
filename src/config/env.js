@@ -73,10 +73,16 @@ const env = {
     webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
     timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 10000),
   },
-  // SMS gateway for OTP codes (live mode). SMS_PROVIDER = vtpass | twilio | africastalking | infobip
+  // SMS gateway for OTP codes (live mode). SMS_PROVIDER = sendchamp (WhatsApp) | vtpass | twilio | africastalking | infobip
   sms: {
     provider: str(process.env.SMS_PROVIDER).toLowerCase(),
     timeoutMs: int(process.env.SMS_TIMEOUT_MS, 10000),
+    sendchamp: {
+      baseUrl: str(process.env.SENDCHAMP_BASE_URL, 'https://api.sendchamp.com').replace(/\/+$/, ''),
+      apiKey: str(process.env.SENDCHAMP_API_KEY),
+      sender: str(process.env.SENDCHAMP_WHATSAPP_SENDER).replace(/\D/g, ''),
+      templateCode: str(process.env.SENDCHAMP_OTP_TEMPLATE_CODE),
+    },
     vtpass: { publicKey: str(process.env.VTPASS_SMS_PUBLIC_KEY), secretKey: str(process.env.VTPASS_SMS_SECRET_KEY), sender: str(process.env.VTPASS_SMS_SENDER, 'TrustPay') },
     twilio: {
       accountSid: str(process.env.TWILIO_ACCOUNT_SID),
@@ -123,7 +129,8 @@ env.assertValid = function assertValid() {
   }
   if (env.providerMode === 'live') {
     const q = env.sms;
-    if (!['vtpass', 'twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (vtpass, twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
+    if (!['sendchamp', 'vtpass', 'twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (sendchamp, vtpass, twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
+    else if (q.provider === 'sendchamp' && !(q.sendchamp.apiKey && q.sendchamp.sender && q.sendchamp.templateCode)) problems.push('Sendchamp WhatsApp needs SENDCHAMP_API_KEY, SENDCHAMP_WHATSAPP_SENDER and SENDCHAMP_OTP_TEMPLATE_CODE.');
     else if (q.provider === 'vtpass' && !(q.vtpass.publicKey && q.vtpass.secretKey)) problems.push('VTpass SMS needs VTPASS_SMS_PUBLIC_KEY and VTPASS_SMS_SECRET_KEY.');
     else if (q.provider === 'twilio' && !(q.twilio.accountSid && q.twilio.authToken && (q.twilio.from || q.twilio.messagingServiceSid))) problems.push('Twilio needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID).');
     else if (q.provider === 'africastalking' && !(q.at.username && q.at.apiKey)) problems.push("Africa's Talking needs AT_USERNAME and AT_API_KEY.");
