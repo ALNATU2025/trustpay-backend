@@ -43,12 +43,38 @@ async function post(url, { headers, body, form }) {
   }
 }
 
+async function get(url, headers) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), env.sms.timeoutMs);
+  try {
+    const res = await fetch(url, { method: 'GET', headers, signal: ctl.signal });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch (_) { /* not json */ }
+    return { ok: res.ok, status: res.status, json, text };
+  } catch (err) {
+    throw new ProviderError('SMS gateway did not respond', { outcome: 'unknown', code: 'SMS_TIMEOUT' });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const fail = (name, r) => {
   log.error(`SMS gateway ${name} rejected the message`, { status: r.status, body: String(r.text).slice(0, 300) });
   throw new ProviderError(`SMS gateway ${name} rejected the message`, { code: 'SMS_REJECTED' });
 };
 
 const gateways = {
+  // https://www.vtpass.com (Messaging API). GET with X-Token / X-Secret headers; recipient as 232XXXXXXXX.
+  async vtpass({ to, message }) {
+    const c = env.sms.vtpass;
+    const qs = new URLSearchParams({ sender: c.sender, recipient: `232${to}`, message, responsetype: 'json' });
+    const r = await get(`https://messaging.vtpass.com/api/sms/sendsms?${qs.toString()}`, { 'X-Token': c.publicKey, 'X-Secret': c.secretKey });
+    const m = r.json && Array.isArray(r.json.messages) && r.json.messages[0];
+    if (!r.ok || !r.json || r.json.responseCode !== 'TG00' || !m || m.statusCode !== '0000') fail('vtpass', r);
+    return { providerRef: m.messageId || `vtpass-${Date.now()}` };
+  },
+
   // https://www.twilio.com/docs/messaging/api/message-resource
   async twilio({ to, message }) {
     const c = env.sms.twilio;

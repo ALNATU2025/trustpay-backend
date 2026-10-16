@@ -73,10 +73,11 @@ const env = {
     webhookSecret: str(process.env.MONIME_WEBHOOK_SECRET),
     timeoutMs: int(process.env.MONIME_TIMEOUT_MS, 10000),
   },
-  // SMS gateway for OTP codes (live mode). SMS_PROVIDER = twilio | africastalking | infobip
+  // SMS gateway for OTP codes (live mode). SMS_PROVIDER = vtpass | twilio | africastalking | infobip
   sms: {
     provider: str(process.env.SMS_PROVIDER).toLowerCase(),
     timeoutMs: int(process.env.SMS_TIMEOUT_MS, 10000),
+    vtpass: { publicKey: str(process.env.VTPASS_SMS_PUBLIC_KEY), secretKey: str(process.env.VTPASS_SMS_SECRET_KEY), sender: str(process.env.VTPASS_SMS_SENDER, 'TrustPay') },
     twilio: {
       accountSid: str(process.env.TWILIO_ACCOUNT_SID),
       authToken: str(process.env.TWILIO_AUTH_TOKEN),
@@ -122,7 +123,8 @@ env.assertValid = function assertValid() {
   }
   if (env.providerMode === 'live') {
     const q = env.sms;
-    if (!['twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
+    if (!['vtpass', 'twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (vtpass, twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
+    else if (q.provider === 'vtpass' && !(q.vtpass.publicKey && q.vtpass.secretKey)) problems.push('VTpass SMS needs VTPASS_SMS_PUBLIC_KEY and VTPASS_SMS_SECRET_KEY.');
     else if (q.provider === 'twilio' && !(q.twilio.accountSid && q.twilio.authToken && (q.twilio.from || q.twilio.messagingServiceSid))) problems.push('Twilio needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID).');
     else if (q.provider === 'africastalking' && !(q.at.username && q.at.apiKey)) problems.push("Africa's Talking needs AT_USERNAME and AT_API_KEY.");
     else if (q.provider === 'infobip' && !(q.infobip.baseUrl && q.infobip.apiKey)) problems.push('Infobip needs INFOBIP_BASE_URL and INFOBIP_API_KEY.');
