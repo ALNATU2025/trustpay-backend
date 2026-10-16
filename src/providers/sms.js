@@ -64,6 +64,29 @@ const fail = (name, r) => {
   throw new ProviderError(`SMS gateway ${name} rejected the message`, { code: 'SMS_REJECTED' });
 };
 
+// No template needed: Sendchamp's OTP Verification product sends the code over WhatsApp using its own
+// message. We pass OUR code as `token`, so TrustPay still checks it itself (no confirm call needed).
+// https://sendchamp.readme.io/reference/send-otp-api
+async function sendchampVerification({ to, code, firstName, ttlMinutes }) {
+  const c = env.sms.sendchamp;
+  const body = {
+    channel: 'whatsapp',
+    token: String(code),
+    token_type: 'numeric',
+    token_length: String(code).length,
+    expiration_time: ttlMinutes || 10,
+    customer_mobile_number: `232${to}`,
+    meta_data: { first_name: String(firstName || 'there') },
+  };
+  if (c.sender) body.sender = c.sender;
+  const r = await post(`${c.baseUrl}/api/v1/verification/create`, {
+    headers: { Authorization: `Bearer ${c.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body,
+  });
+  if (!r.ok || !r.json || r.json.status !== 'success') fail('sendchamp', r);
+  return { providerRef: (r.json.data && r.json.data.reference) || `sendchamp-${Date.now()}` };
+}
+
 const gateways = {
   // https://sendchamp.readme.io/reference/whatsapp-template-message-api
   // OTP goes to the customer's WhatsApp through an approved template whose body variables are
@@ -71,6 +94,7 @@ const gateways = {
   async sendchamp({ to, code, firstName, ttlMinutes, message }) {
     const c = env.sms.sendchamp;
     if (!code) throw new ProviderError('Sendchamp WhatsApp is only used for one-time codes.', { code: 'SMS_NOT_CONFIGURED' });
+    if (!c.templateCode) return sendchampVerification({ to, code, firstName, ttlMinutes });
     const r = await post(`${c.baseUrl}/api/v1/whatsapp/message/send`, {
       headers: { Authorization: `Bearer ${c.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: {

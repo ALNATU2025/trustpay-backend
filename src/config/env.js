@@ -130,7 +130,7 @@ env.assertValid = function assertValid() {
   if (env.providerMode === 'live') {
     const q = env.sms;
     if (!['sendchamp', 'vtpass', 'twilio', 'africastalking', 'infobip'].includes(q.provider)) problems.push('SMS_PROVIDER (sendchamp, vtpass, twilio, africastalking or infobip) is required when PROVIDER_MODE=live, otherwise nobody can receive a verification code.');
-    else if (q.provider === 'sendchamp' && !(q.sendchamp.apiKey && q.sendchamp.sender && q.sendchamp.templateCode)) problems.push('Sendchamp WhatsApp needs SENDCHAMP_API_KEY, SENDCHAMP_WHATSAPP_SENDER and SENDCHAMP_OTP_TEMPLATE_CODE.');
+    else if (q.provider === 'sendchamp' && !q.sendchamp.apiKey) problems.push('Sendchamp needs SENDCHAMP_API_KEY (SENDCHAMP_WHATSAPP_SENDER and SENDCHAMP_OTP_TEMPLATE_CODE are optional).');
     else if (q.provider === 'vtpass' && !(q.vtpass.publicKey && q.vtpass.secretKey)) problems.push('VTpass SMS needs VTPASS_SMS_PUBLIC_KEY and VTPASS_SMS_SECRET_KEY.');
     else if (q.provider === 'twilio' && !(q.twilio.accountSid && q.twilio.authToken && (q.twilio.from || q.twilio.messagingServiceSid))) problems.push('Twilio needs TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_FROM (or TWILIO_MESSAGING_SERVICE_SID).');
     else if (q.provider === 'africastalking' && !(q.at.username && q.at.apiKey)) problems.push("Africa's Talking needs AT_USERNAME and AT_API_KEY.");
