@@ -95,6 +95,8 @@ const env = {
   },
   // Public URL of this API (used for checkout return pages), e.g. https://trustpay-backend-zkiv.onrender.com
   publicUrl: str(process.env.PUBLIC_URL, str(process.env.RENDER_EXTERNAL_URL)).replace(/\/+$/, ''),
+  // false = phone numbers are NOT verified by a code (no SMS/WhatsApp needed). Set true once an OTP gateway works.
+  phoneOtpRequired: bool(process.env.PHONE_OTP_REQUIRED, false),
   kycManual: bool(process.env.KYC_MANUAL, true),
   corsOrigins: str(process.env.CORS_ORIGINS, '*'),
   trustProxy: int(process.env.TRUST_PROXY, 1),

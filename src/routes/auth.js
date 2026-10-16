@@ -69,6 +69,7 @@ router.post(
           phone: b.phone,
           passwordHash,
           accountNumber: newAccountNumber(),
+          ...(env.phoneOtpRequired ? {} : { phoneVerified: true, onboardingStep: 'identity' }),
         });
       } catch (err) {
         if (isDuplicateKey(err, 'accountNumber')) continue;
@@ -81,7 +82,7 @@ router.post(
 
     let code;
     try {
-      code = await sec.issueOtp(user, 'verify_phone');
+      if (env.phoneOtpRequired) code = await sec.issueOtp(user, 'verify_phone');
     } catch (err) {
       // The account exists; the app lets the user ask for a new code.
       if (err.status !== 503) throw err;
@@ -117,6 +118,12 @@ router.post(
     }
     if (user.status === 'suspended') throw E.forbidden('Your account is suspended. Please contact support.', 'SUSPENDED');
     await User.updateOne({ _id: user._id }, { $set: { loginFailCount: 0, lastLoginAt: new Date() }, $unset: { loginLockedUntil: 1 } });
+    if (!env.phoneOtpRequired && !user.phoneVerified) {
+      // Phone codes are switched off: let people who were stuck on the verify screen continue.
+      user.phoneVerified = true;
+      if (user.onboardingStep === 'phone') user.onboardingStep = 'identity';
+      await user.save();
+    }
     res.json({ token: sec.signSession(user), user: presentUser(user) });
   }),
 );
