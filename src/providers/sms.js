@@ -37,6 +37,7 @@ async function post(url, { headers, body, form }) {
     try { json = JSON.parse(text); } catch (_) { /* not json */ }
     return { ok: res.ok, status: res.status, json, text };
   } catch (err) {
+    log.error('SMS gateway request failed', { cause: err && (err.cause && err.cause.code || err.name), message: err && err.message });
     throw new ProviderError('SMS gateway did not respond', { outcome: 'unknown', code: 'SMS_TIMEOUT' });
   } finally {
     clearTimeout(timer);
@@ -53,6 +54,7 @@ async function get(url, headers) {
     try { json = JSON.parse(text); } catch (_) { /* not json */ }
     return { ok: res.ok, status: res.status, json, text };
   } catch (err) {
+    log.error('SMS gateway request failed', { cause: err && (err.cause && err.cause.code || err.name), message: err && err.message });
     throw new ProviderError('SMS gateway did not respond', { outcome: 'unknown', code: 'SMS_TIMEOUT' });
   } finally {
     clearTimeout(timer);
